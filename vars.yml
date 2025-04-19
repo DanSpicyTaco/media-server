@@ -1,0 +1,22 @@
+# Docker/Directories
+internal_network: "media-network"
+public_network: "reverse-proxy"
+
+root_dir: "/home/{{ ansible_user }}/{{ server_name }}"
+media_dir: "{{ root_dir }}/content/media"
+torrents_dir: "{{ root_dir }}/content/torrents"
+network_dir: "{{ root_dir }}/network"
+qbittorrent_dir: "{{ root_dir }}/torrent"
+management_dir: "{{ root_dir }}/media-management"
+plex_dir: "{{ root_dir }}/plex"
+frontend_dir: "{{ root_dir }}/frontend"
+
+# Public Facing Ports
+qbittorrent_port: 8080
+prowlarr_port: 9696
+radarr_port: 7878
+sonarrrr_port: 8989
+overseerr_port: 5055
+
+# Plex
+plex_server_name: "{{ server_name }}"

@@ -1,0 +1,168 @@
+- name: Copy docker-compose file
+  template:
+    src: "./docker-compose.yml.j2"
+    dest: "{{ management_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: "{{ ansible_facts.user_uid }}"
+    group: "{{ ansible_facts.user_gid }}"
+
+- name: Move settings into the appropriate folders
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ management_dir }}/{{ item.app_name }}/{{ item.dest }}"
+    mode: "0644"
+    owner: "{{ ansible_facts.user_uid }}"
+    group: "{{ ansible_facts.user_gid }}"
+  loop:
+    - {
+        src: "./prowlarr.config.xml.j2",
+        app_name: "prowlarr",
+        dest: "config.xml",
+      }
+    - { src: "./radarr.config.xml.j2", app_name: "radarr", dest: "config.xml" }
+    - { src: "./sonarr.config.xml.j2", app_name: "sonarr", dest: "config.xml" }
+
+- name: Start up containers
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ management_dir }}"
+
+- name: Finish setting up Radarr
+  vars:
+    root_folder_path: "/data/media/movies"
+    category_name: "radarr"
+  block:
+    - name: Wait for Radarr to be available
+      wait_for:
+        host: 127.0.0.1
+        port: 7878
+        delay: 10
+        timeout: 300
+        state: started
+    - name: Include JSON file
+      include_vars:
+        file: radarr.config.json.j2
+        name: radarr_config_json
+    - name: Set the download client
+      uri:
+        url: http://127.0.0.1:7878/api/v3/downloadclient
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ radarr_api_key }}"
+        body: "{{ radarr_config_json['downloadClient'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+    - name: Set naming config
+      uri:
+        url: http://127.0.0.1:7878/api/v3/config/naming/1
+        method: PUT
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ radarr_api_key }}"
+        body: "{{ radarr_config_json['namingConfig'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+    - name: Set root folder
+      uri:
+        url: http://127.0.0.1:7878/api/v3/rootfolder
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ radarr_api_key }}"
+        body: "{{ radarr_config_json['rootFolder'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+
+- name: Finish setting up Sonarr
+  vars:
+    root_folder_path: "/data/media/tv"
+    category_name: "sonarr"
+  block:
+    - name: Wait for Sonarr to be available
+      wait_for:
+        host: 127.0.0.1
+        port: 8989
+        delay: 10
+        timeout: 300
+        state: started
+    - name: Include JSON file
+      include_vars:
+        file: sonarr.config.json.j2
+        name: sonarr_config_json
+    - name: Set the download client
+      uri:
+        url: http://127.0.0.1:8989/api/v3/downloadclient
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ sonarr_api_key }}"
+        body: "{{ sonarr_config_json['downloadClient'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+    - name: Set naming config
+      uri:
+        url: http://127.0.0.1:8989/api/v3/config/naming/1
+        method: PUT
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ sonarr_api_key }}"
+        body: "{{ sonarr_config_json['namingConfig'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+    - name: Set root folder
+      uri:
+        url: http://127.0.0.1:8989/api/v3/rootfolder
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ sonarr_api_key }}"
+        body: "{{ sonarr_config_json['rootFolder'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+
+- name: Finish setting up Prowlarr
+  vars:
+    prowlarr_server: "http://prowlarr:9696"
+    radarr_server: "http://radarr:7878"
+    sonarr_server: "http://sonarr:8989"
+  block:
+    - name: Wait for Prowlarr to be available
+      wait_for:
+        host: 127.0.0.1
+        port: 9696
+        delay: 10
+        timeout: 300
+        state: started
+    - name: Include JSON file
+      include_vars:
+        file: prowlarr.config.json.j2
+        name: prowlarr_config_json
+    - name: Set the Radarr application config
+      uri:
+        url: http://127.0.0.1:9696/api/v1/applications
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ prowlarr_api_key }}"
+        body: "{{ prowlarr_config_json['radarrApplicationConfig'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200
+    - name: Set the Sonarr application config
+      uri:
+        url: http://127.0.0.1:9696/api/v1/applications
+        method: POST
+        headers:
+          Content-Type: "application/json"
+          X-Api-Key: "{{ prowlarr_api_key }}"
+        body: "{{ prowlarr_config_json['sonarrApplicationConfig'] }}"
+        body_format: json
+        return_content: yes
+        status_code: 200

@@ -1,0 +1,56 @@
+- name: Copy qBittorrent docker-compose file
+  template:
+    src: "./docker-compose.yml.j2"
+    dest: "{{ qbittorrent_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: "{{ ansible_facts.user_uid }}"
+    group: "{{ ansible_facts.user_gid }}"
+
+- name: Start up qBittorrent container to create default config files
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ qbittorrent_dir }}"
+
+- name: Stop the qBittorrent container
+  shell: docker-compose down
+  args:
+    chdir: "{{ qbittorrent_dir }}"
+
+- name: Create qBittorrent encrypted password
+  block:
+    - name: Download the password generator
+      get_url:
+        url: https://github.com/saltydk/qbt_pw_gen/releases/download/v1.0.2/qbt_pw_gen-v1.0.2-linux-amd64
+        dest: "{{ qbittorrent_dir }}/pwgen"
+        mode: "0755"
+
+    - name: Generate the password
+      command: ./pwgen {{ qbittorrent_password }}
+      args:
+        chdir: "{{ qbittorrent_dir }}"
+      register: password_output
+
+    - name: Store the generated password as an Ansible variable
+      set_fact:
+        qbittorrent_password_pbkdf2: "{{ password_output.stdout }}"
+
+    - name: Remove the password generator executable
+      file:
+        path: "{{ qbittorrent_dir }}/pwgen"
+        state: absent
+
+- name: Move qBittorrent settings into the appropriate folder
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ qbittorrent_dir }}/config/qBittorrent/{{ item.dest }}"
+    mode: "0644"
+    owner: "{{ ansible_facts.user_uid }}"
+    group: "{{ ansible_facts.user_gid }}"
+  loop:
+    - { src: "./qBittorrent.conf.j2", dest: "qBittorrent.conf" }
+    - { src: "./categories.json", dest: "categories.json" }
+
+- name: Restart qBittorrent container for changes to take effect
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ qbittorrent_dir }}"

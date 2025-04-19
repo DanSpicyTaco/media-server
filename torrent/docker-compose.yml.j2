@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      - PUID={{ ansible_facts.user_uid }}
+      - PGID={{ ansible_facts.user_gid }}
+      - TZ={{ timezone }}
+      - WEBUI_PORT=8080
+    volumes:
+      - {{ qbittorrent_dir }}/config:/config
+      - {{ torrents_dir }}:/data/torrents
+    ports:
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+      - "127.0.0.1:{{ qbittorrent_port }}:8080"
+    networks:
+      - {{ internal_network }}
+
+networks:
+  {{ internal_network }}:
+    external: true

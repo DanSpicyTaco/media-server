@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  prowlarr:
+    image: linuxserver/prowlarr
+    container_name: prowlarr
+    environment:
+      - PUID={{ ansible_facts.user_uid }}
+      - PGID={{ ansible_facts.user_gid }}
+      - TZ={{ timezone }}
+    volumes:
+      - {{ management_dir }}/prowlarr:/config
+    ports:
+      - "127.0.0.1:{{ prowlarr_port }}:9696"
+    restart: unless-stopped
+    networks:
+      - {{ internal_network }}
+
+  radarr:
+    image: linuxserver/radarr
+    container_name: radarr
+    environment:
+      - PUID={{ ansible_facts.user_uid }}
+      - PGID={{ ansible_facts.user_gid }}
+      - TZ={{ timezone }}
+    volumes:
+      - {{ management_dir }}/radarr:/config
+      - {{ root_dir }}/content:/data
+    ports:
+      - "127.0.0.1:{{ radarr_port }}:7878"
+    restart: unless-stopped
+    networks:
+      - {{ internal_network }} 
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    environment:
+      - PUID={{ ansible_facts.user_uid }}
+      - PGID={{ ansible_facts.user_gid }}
+      - TZ={{ timezone }}
+    volumes:
+      - {{ management_dir }}/sonarr:/config
+      - {{ root_dir }}/content:/data
+    ports:
+      - "127.0.0.1:{{ sonarr_port }}:8989"
+    restart: unless-stopped
+    networks:
+      - {{ internal_network }}
+
+networks:
+  {{ internal_network }}:
+    external: true

@@ -1,0 +1,99 @@
+---
+- name: Setup Media Server
+  hosts: media
+  gather_facts: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Install Docker and Docker Compose
+      become: yes
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: yes
+      tags:
+        - setup
+        - docker
+
+    - name: Add user to docker group
+      become: yes
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      tags:
+        - setup
+        - docker
+
+    - name: Ensure Docker service is started
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags:
+        - setup
+        - docker
+
+    - name: Setup UFW
+      become: yes
+      import_tasks: ../common/setup-ufw.tasks.yaml
+      tags:
+        - setup
+        - firewall
+
+    - name: Create necessary directories
+      file:
+        path: "{{ root_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      with_items:
+        - content/media
+        - content/media/movies
+        - content/media/tv
+        - content/torrents
+        - content/torrents/movies
+        - content/torrents/tv
+        - network
+        - network/traefik
+        - plex
+        - torrent
+        - media-management
+        - media-management/prowlarr
+        - media-management/radarr
+        - media-management/sonarr
+        - frontend
+        - frontend/overseerr
+      tags:
+        - setup
+        - directories
+
+    - name: Setup network
+      import_tasks: ./network/network.tasks.yml
+      tags:
+        - setup
+        - network
+
+    - name: Setup torrent client
+      import_tasks: ./torrent/qbittorrent.tasks.yml
+      tags:
+        - torrent
+
+    - name: Setup media management services
+      import_tasks: ./media-management/media-management.tasks.yml
+      tags:
+        - media-management
+
+    - name: Setup Plex
+      import_tasks: ./plex/plex.tasks.yml
+      tags:
+        - plex
+
+    - name: Setup frontend services
+      import_tasks: ./frontend/frontend.tasks.yml
+      tags:
+        - frontend

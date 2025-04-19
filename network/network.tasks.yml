@@ -1,0 +1,15 @@
+- name: Copy config files
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ network_dir }}/{{ item.dest }}"
+    mode: "0644"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  loop:
+    - { src: "./docker-compose.yml.j2", dest: "docker-compose.yml" }
+    - { src: "./traefik.config.yml.j2", dest: "traefik/traefik.yml" }
+
+- name: Create the networks
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ network_dir }}"

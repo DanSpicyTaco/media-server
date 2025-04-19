@@ -1,0 +1,69 @@
+- name: Get temporary Plex claim token
+  shell: >
+    curl -s -X GET "https://plex.tv/api/claim/token?&X-Plex-Token={{ plex_token }}" | sed -n 's/.*token="\([^"]*\)".*/\1/p'
+  register: plex_claim_token
+  changed_when: false
+  failed_when: plex_claim_token.stdout == ""
+
+- name: Copy docker-compose file
+  template:
+    src: "./docker-compose.yml.j2"
+    dest: "{{ plex_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: "{{ ansible_facts.user_uid }}"
+    group: "{{ ansible_facts.user_gid }}"
+
+- name: Start up Plex container
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ plex_dir }}"
+
+- name: Wait for Plex to be available
+  wait_for:
+    host: 127.0.0.1
+    port: 32400
+    delay: 30
+    timeout: 300
+    state: started
+
+- name: Setup server details
+  uri:
+    url: "http://127.0.0.1:32400/:/prefs?{{ item.name }}={{ item.value }}&X-Plex-Token={{ plex_token }}"
+    method: PUT
+    return_content: yes
+    status_code: 200
+  with_items:
+    - { name: "FriendlyName", value: "{{ plex_server_name }}" }
+    - { name: "PublishServerOnPlexOnlineKey", value: "1" }
+    - { name: "AcceptedEULA", value: "1" }
+
+- name: Setup Movies library
+  uri:
+    url: "http://127.0.0.1:32400/library/sections?name=Movies&type=movie&agent=tv.plex.agents.movie&scanner=Plex%20Movie&language=en-US&location=/data/media/movies&X-Plex-Token={{ plex_token }}"
+    method: POST
+    return_content: yes
+    status_code: 201
+  # Sometimes the server needs time to get up and running - just retry until it is ready/working
+  register: movies_library_setup
+  until: movies_library_setup.status == 201
+  retries: 5
+  delay: 10
+
+- name: Setup TV library
+  uri:
+    url: "http://127.0.0.1:32400/library/sections?name=TV%20Shows&type=show&agent=tv.plex.agents.series&scanner=Plex%20TV%20Series&language=en-US&location=/data/media/tv&X-Plex-Token={{ plex_token }}"
+    method: POST
+    return_content: yes
+    status_code: 201
+  register: tv_library_setup
+
+- name: Restart Plex container
+  shell: docker-compose down && docker-compose up -d
+  args:
+    chdir: "{{ plex_dir }}"
+
+- name: Allow UFW Plex connections
+  become: yes
+  ufw:
+    rule: allow
+    port: 32400

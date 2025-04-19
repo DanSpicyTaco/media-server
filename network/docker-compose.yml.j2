@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  dummy:
+    image: alpine
+    command: tail -f /dev/null
+    networks:
+      - {{ internal_network }}
+
+  traefik:
+    image: traefik:v3
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    labels:
+      - "--add-host host.docker.internal:host-gateway"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - {{ network_dir }}/traefik/letsencrypt:/letsencrypt
+      - {{ network_dir }}/traefik/traefik.yml:/etc/traefik/traefik.yml
+    networks:
+      - {{ public_network }}
+
+networks:
+  {{ internal_network }}:
+    name: {{ internal_network }}
+    driver: bridge
+    external: false
+  {{ public_network }}:
+    name: {{ public_network }}
+    driver: bridge
+    external: false

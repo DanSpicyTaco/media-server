@@ -1,0 +1,51 @@
+{
+  "applicationSettings": {
+    "appLanguage": "en",
+    "applicationTitle": "{{ frontend_title }}",
+    "applicationUrl": "https://{{ server_domain }}",
+    "trustProxy": false,
+    "csrfProtection": true,
+    "hideAvailable": false,
+    "partialRequestsEnabled": true,
+    "localLogin": false,
+    "newPlexLogin": false,
+    "defaultPermissions": 32
+  },
+  "plexServer": {
+    "ip": "{{ local_server_address }}",
+    "port": 32400,
+    "useSsl": false,
+    "webAppUrl": "{{ local_server_uri }}"
+  },
+  "radarrServer": {
+    "name": "Radarr",
+    "hostname": "radarr",
+    "port": 7878,
+    "apiKey": "{{ radarr_api_key }}",
+    "useSsl": false,
+    "activeProfileId": 1,
+    "activeProfileName": "HD - 720p/1080p",
+    "activeDirectory": "/data/media/movies",
+    "is4k": false,
+    "minimumAvailability": "released",
+    "isDefault": true,
+    "syncEnabled": true,
+    "preventSearch": false
+  },
+  "sonarrServer": {
+    "name": "Sonarr",
+    "hostname": "sonarr",
+    "port": 8989,
+    "apiKey": "{{ sonarr_api_key }}",
+    "useSsl": false,
+    "activeProfileId": 1,
+    "activeLanguageProfileId": 1,
+    "activeProfileName": "HD - 720p/1080p",
+    "activeDirectory": "/data/media/tv",
+    "is4k": false,
+    "isDefault": true,
+    "enableSeasonFolders": false,
+    "syncEnabled": true,
+    "preventSearch": false
+  }
+}

@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  plex:
+    image: plexinc/pms-docker
+    container_name: plex
+    restart: unless-stopped
+    environment:
+      - PUID={{ ansible_facts.user_uid }}
+      - PGID={{ ansible_facts.user_gid }}
+      - PLEX_CLAIM={{ plex_claim_token.stdout }}
+      - CHANGE_CONFIG_DIR_OWNERSHIP=false
+      - VERSION=docker
+    volumes:
+      - {{ plex_dir }}:/config
+      - {{ media_dir }}:/data/media
+    network_mode: host

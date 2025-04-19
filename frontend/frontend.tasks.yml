@@ -1,0 +1,130 @@
+- name: Copy docker-compose
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ frontend_dir }}/{{ item.dest }}"
+    mode: "0644"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  loop:
+    - { src: "./docker-compose.yml.j2", dest: "docker-compose.yml" }
+
+- name: Start up containers
+  shell: docker-compose up -d
+  args:
+    chdir: "{{ frontend_dir }}"
+
+- name: Wait for Overseerr to be available
+  wait_for:
+    host: 127.0.0.1
+    port: 5055
+    delay: 10
+    timeout: 300
+    state: started
+
+- name: Create the admin account
+  uri:
+    url: http://127.0.0.1:5055/api/v1/auth/plex
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: { "authToken": "{{ plex_token }}" }
+    body_format: json
+    return_content: yes
+    status_code: 200
+  register: overseerr_auth_response
+
+- name: Store the session cookie
+  set_fact:
+    session_cookie: "{{ overseerr_auth_response.cookies_string }}"
+
+- name: Get Plex server settings
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/plex/devices/servers
+    method: GET
+    headers:
+      Cookie: "{{ session_cookie }}"
+    return_content: yes
+    status_code: 200
+  register: plex_servers_response
+
+- name: Extract domain from Plex server settings
+  block:
+    - name: Get list of available servers
+      set_fact:
+        plex_servers_list: "{{ plex_servers_response.json | json_query('[?name==`' + plex_server_name + '`].connection') | first }}"
+    - name: Find the local server details
+      set_fact:
+        local_server: "{{ plex_servers_list | json_query('[?message==`OK` && local==`true`]') | first }}"
+    - name: Save IP address
+      set_fact:
+        local_server_address: "{{ local_server.address }}"
+    - name: Save URI
+      set_fact:
+        local_server_uri: "{{ local_server.uri }}"
+
+- name: Include JSON file
+  include_vars:
+    file: overseerr.config.json.j2
+    name: overseerr_config_json
+
+- name: Set Plex server settings
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/plex
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      Cookie: "{{ session_cookie }}"
+    body: "{{ overseerr_config_json['plexServer'] }}"
+    body_format: json
+    return_content: yes
+    status_code: 200
+
+- name: Set application settings
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/main
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      cookie: "{{ session_cookie }}"
+    body: "{{ overseerr_config_json['applicationSettings'] }}"
+    body_format: json
+    return_content: yes
+    status_code: 200
+
+- name: Set Radarr server settings
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/radarr
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      cookie: "{{ session_cookie }}"
+    body: "{{ overseerr_config_json['radarrServer'] }}"
+    body_format: json
+    return_content: yes
+    status_code: 201
+
+- name: Set Sonarr server settings
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/sonarr
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      cookie: "{{ session_cookie }}"
+    body: "{{ overseerr_config_json['sonarrServer'] }}"
+    body_format: json
+    return_content: yes
+    status_code: 201
+
+- name: Set Overseerr to be initialised
+  uri:
+    url: http://127.0.0.1:5055/api/v1/settings/initialize
+    method: POST
+    headers:
+      Cookie: "{{ session_cookie }}"
+    return_content: yes
+    status_code: 200
+
+- name: Restart Overseerr for config changes to take effect
+  shell: docker-compose restart overseerr
+  args:
+    chdir: "{{ frontend_dir }}"
