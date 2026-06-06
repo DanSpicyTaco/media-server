@@ -5,18 +5,29 @@ public_network: "reverse-proxy"
 root_dir: "/home/{{ ansible_user }}/{{ server_name }}"
 media_dir: "{{ root_dir }}/content/media"
 torrents_dir: "{{ root_dir }}/content/torrents"
-network_dir: "{{ root_dir }}/network"
+config_dir: "{{ root_dir }}/config"
+jellyfin_dir: "{{ root_dir }}/jellyfin"
+seerr_dir: "{{ root_dir }}/seerr"
 qbittorrent_dir: "{{ root_dir }}/torrent"
 management_dir: "{{ root_dir }}/media-management"
-plex_dir: "{{ root_dir }}/plex"
-frontend_dir: "{{ root_dir }}/frontend"
 
-# Public Facing Ports
+# Public Facing Ports (localhost-bound admin UIs)
 qbittorrent_port: 8080
 prowlarr_port: 9696
 radarr_port: 7878
-sonarrrr_port: 8989
-overseerr_port: 5055
+sonarr_port: 8989
+seerr_port: 5055
+jellyfin_port: 8096
 
-# Plex
-plex_server_name: "{{ server_name }}"
+# Jellyfin
+jellyfin_username: "admin"
+jellyfin_server_name: "{{ server_name }}"
+
+# Seerr
+seerr_admin_email: "admin@{{ server_domain }}"
+seerr_admin_username: "admin"
+
+# Internal service URLs (Docker network hostnames)
+prowlarr_server: "http://prowlarr:9696"
+radarr_server: "http://radarr:7878"
+sonarr_server: "http://sonarr:8989"

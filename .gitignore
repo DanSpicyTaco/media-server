@@ -1,1 +1,4 @@
 inventory.ini
+.env
+config/.init-state
+.ansible

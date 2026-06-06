@@ -70,10 +70,10 @@
       },
       {
         "order": 6,
-        "name": "tvCategory",
+        "name": "movieCategory",
         "label": "Category",
-        "helpText": "Adding a category specific to Sonarr avoids conflicts with unrelated non-Sonarr downloads. Using a category is optional, but strongly recommended.",
-        "value": "{{ category_name }}",
+        "helpText": "Adding a category specific to Radarr avoids conflicts with unrelated non-Radarr downloads. Using a category is optional, but strongly recommended.",
+        "value": "radarr",
         "type": "textbox",
         "advanced": false,
         "privacy": "normal",
@@ -81,9 +81,9 @@
       },
       {
         "order": 7,
-        "name": "tvImportedCategory",
+        "name": "movieImportedCategory",
         "label": "Post-Import Category",
-        "helpText": "Category for Sonarr to set after it has imported the download. Sonarr will not remove torrents in that category even if seeding finished. Leave blank to keep same category.",
+        "helpText": "Category for Radarr to set after it has imported the download. Radarr will not remove torrents in that category even if seeding finished. Leave blank to keep same category.",
         "type": "textbox",
         "advanced": true,
         "privacy": "normal",
@@ -91,9 +91,9 @@
       },
       {
         "order": 8,
-        "name": "recentTvPriority",
+        "name": "recentMoviePriority",
         "label": "Recent Priority",
-        "helpText": "Priority to use when grabbing episodes that aired within the last 14 days",
+        "helpText": "Priority to use when grabbing movies that aired within the last 21 days",
         "value": 0,
         "type": "select",
         "advanced": false,
@@ -101,12 +101,14 @@
           {
             "value": 0,
             "name": "Last",
-            "order": 0
+            "order": 0,
+            "dividerAfter": false
           },
           {
             "value": 1,
             "name": "First",
-            "order": 1
+            "order": 1,
+            "dividerAfter": false
           }
         ],
         "privacy": "normal",
@@ -114,9 +116,9 @@
       },
       {
         "order": 9,
-        "name": "olderTvPriority",
+        "name": "olderMoviePriority",
         "label": "Older Priority",
-        "helpText": "Priority to use when grabbing episodes that aired over 14 days ago",
+        "helpText": "Priority to use when grabbing movies that aired over 21 days ago",
         "value": 0,
         "type": "select",
         "advanced": false,
@@ -124,12 +126,14 @@
           {
             "value": 0,
             "name": "Last",
-            "order": 0
+            "order": 0,
+            "dividerAfter": false
           },
           {
             "value": 1,
             "name": "First",
-            "order": 1
+            "order": 1,
+            "dividerAfter": false
           }
         ],
         "privacy": "normal",
@@ -148,19 +152,22 @@
             "value": 0,
             "name": "Started",
             "order": 7,
-            "hint": "(0)"
+            "hint": "(0)",
+            "dividerAfter": false
           },
           {
             "value": 1,
             "name": "Force Started",
             "order": 10,
-            "hint": "(1)"
+            "hint": "(1)",
+            "dividerAfter": false
           },
           {
             "value": 2,
             "name": "Stopped",
             "order": 13,
-            "hint": "(2)"
+            "hint": "(2)",
+            "dividerAfter": false
           }
         ],
         "privacy": "normal",
@@ -200,17 +207,20 @@
           {
             "value": 0,
             "name": "Default",
-            "order": 0
+            "order": 0,
+            "dividerAfter": false
           },
           {
             "value": 1,
             "name": "Original",
-            "order": 1
+            "order": 1,
+            "dividerAfter": false
           },
           {
             "value": 2,
             "name": "Subfolder",
-            "order": 2
+            "order": 2,
+            "dividerAfter": false
           }
         ],
         "privacy": "normal",
@@ -220,29 +230,23 @@
     "implementationName": "qBittorrent",
     "implementation": "QBittorrent",
     "configContract": "QBittorrentSettings",
-    "infoLink": "https://wiki.servarr.com/sonarr/supported#qbittorrent",
+    "infoLink": "https://wiki.servarr.com/radarr/supported#qbittorrent",
     "tags": [],
     "id": 0
   },
   "namingConfig": {
-    "renameEpisodes": true,
+    "id": 0,
+    "renameMovies": true,
     "replaceIllegalCharacters": true,
-    "colonReplacementFormat": 4,
-    "customColonReplacementFormat": "",
-    "multiEpisodeStyle": 5,
-    "standardEpisodeFormat": "{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}",
-    "dailyEpisodeFormat": "{Series Title} - {Air-Date} - {Episode Title} {Quality Full}",
-    "animeEpisodeFormat": "{Series Title} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}",
-    "seriesFolderFormat": "{Series Title}",
-    "seasonFolderFormat": "Season {season}",
-    "specialsFolderFormat": "Specials",
-    "id": 0
+    "colonReplacementFormat": "delete",
+    "standardMovieFormat": "{Movie Title} ({Release Year}) {Quality Full}",
+    "movieFolderFormat": "{Movie Title} ({Release Year})"
   },
   "rootFolder": {
-    "id": 0,
-    "path": "{{ root_folder_path }}",
+    "path": "/data/media/movies",
     "accessible": true,
-    "freeSpace": 0,
-    "unmappedFolders": []
+    "freeSpace": 66714726400,
+    "unmappedFolders": [],
+    "id": 0
   }
 }

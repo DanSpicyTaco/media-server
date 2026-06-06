@@ -1,60 +1,115 @@
 # Media Server
 
-This project sets up a media server on a virtual private server. It allows you to create Plex, Radarr, Sonarr, Prowlarr
-and qBittorrent services automatically through Ansible.
+This project deploys a self-hosted media server on a VPS using Ansible for bootstrap and Docker Compose for the stack.
 
-> **⚠️WARNING⚠️** I do not condone the use of this technology for downloading illegal or copyrighted content. This is
-> purely for fun and not for doing anything illegal.
+**Stack:** Traefik, Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, qBittorrent
+
+> **WARNING** I do not condone the use of this technology for downloading illegal or copyrighted content. This is purely for fun and not for doing anything illegal.
+
+## Architecture
+
+```
+Users → Traefik (HTTPS)
+          ├── Seerr      (https://your-domain)
+          └── Jellyfin   (https://jellyfin.your-domain)
+
+Internal (media-network):
+  Seerr → Jellyfin, Radarr, Sonarr
+  Prowlarr → Radarr, Sonarr
+  Radarr/Sonarr → qBittorrent → /content/torrents
+  Radarr/Sonarr/Jellyfin → /content/media
+```
+
+Ansible handles VPS bootstrap (Docker, firewall, directories, config templating). Docker Compose runs all services from a single [`compose.yaml.j2`](compose.yaml.j2). A one-shot [`scripts/init-services.sh`](scripts/init-services.sh) configures Jellyfin libraries, *arr apps, and Seerr via their APIs.
+
+## Prerequisites
+
+- A VPS with a non-root user and SSH access
+- [Ansible](https://docs.ansible.com/ansible/latest/index.html) on your local machine
+- DNS A records for `your-domain` and `jellyfin.your-domain` pointing at the VPS
+
+Install the required Ansible collection:
+
+```zsh
+ansible-galaxy collection install -r requirements.yml
+```
 
 ## Deployment
 
-If you haven't already, install [Ansible](https://docs.ansible.com/ansible/latest/index.html) on your local machine. Next, create an inventory file, `inventory.ini`. It should look like:
+Create an inventory file, `inventory.ini`:
 
 ```ini
-   [media]
-   <ip_address>
+[media]
+<ip_address>
 
-   [media:vars]
-   ansible_user=<user>
-   ansible_ssh_private_key_file=<private_key>
+[media:vars]
+ansible_user=<user>
+ansible_ssh_private_key_file=<private_key>
 
-   # Server
-   server_domain=<server_domain>
-   admin_email=<admin_email>
-   server_name=<server_name>
-   frontend_title=<name_in_website>
-   timezone=<your_timezone>
+# Server
+server_domain=<server_domain>
+admin_email=<admin_email>
+server_name=<server_name>
+frontend_title=<name_in_website>
+timezone=<your_timezone>
 
-   # Secrets
-   plex_token=<XXXX>
-   qbittorrent_password=<XXXX>
-   prowlarr_api_key=<XXXX>
-   radarr_api_key=<XXXX>
-   sonarr_api_key=<XXXX>
+# Secrets — see .env.example for descriptions
+qbittorrent_password=<XXXX>
+jellyfin_password=<XXXX>
+seerr_admin_password=<XXXX>
+prowlarr_api_key=<XXXX>
+radarr_api_key=<XXXX>
+sonarr_api_key=<XXXX>
 ```
 
-> **Note**: the deployment assumes you already have a VPS set up with a user NOT in root. Running everything in root
-> creates a lot of security issues. Please don't do this!
+> **Note:** Deployment assumes a VPS with a non-root user. Running everything as root creates security issues.
 
-Then, run the Ansible playbook to set up the server:
+Run the playbook:
 
 ```zsh
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml
 ```
 
-If you would like to skip any of the steps (e.g. setup), you can run specific tasks with the `tags` command like so:
+### Partial runs (tags)
 
 ```zsh
-ansible-playbook -i inventory.ini setup-media-server.playbook.yaml  --tags frontend
+# Bootstrap only (Docker, firewall, directories, config)
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags setup
+
+# Start/restart containers
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags compose
+
+# Re-run API initialisation (idempotent)
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
 ```
 
-### Prowlarr
+### Day-2 operations
 
-Prowlarr can be set up with indexers to search torrenting websites. To do so, set up port forwarding to the Prowlarr
-port and head to `http://localhost:{prowlar_port}`. Clicking on "Add Indexers" brings up a page for this.
+On the server, after the initial deploy:
 
- Generally, just filter for public, US language indexers and add a few. The more, the better the chance of finding a torrent.
+```zsh
+cd ~/{{ server_name }}
+docker compose pull
+docker compose up -d
+```
+
+## Prowlarr
+
+Prowlarr is not pre-configured with indexers. After deploy, set up SSH port forwarding to Prowlarr and add indexers manually:
+
+```zsh
+ssh -L 9696:127.0.0.1:9696 <user>@<ip_address>
+```
+
+Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few public indexers.
 
 ## Customisation
 
-You can customise the application, such as having a different port number, by overwriting the `vars.yml` file.
+Override defaults in [`vars.yml`](vars.yml) (ports, paths, usernames). Secrets belong in `inventory.ini`, not in the repo.
+
+## DNS
+
+Traefik obtains TLS certificates via ACME. Ensure these hostnames resolve to your VPS before the first deploy:
+
+- `{{ server_domain }}` — Seerr
+- `jellyfin.{{ server_domain }}` — Jellyfin

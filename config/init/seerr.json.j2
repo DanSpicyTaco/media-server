@@ -3,19 +3,24 @@
     "appLanguage": "en",
     "applicationTitle": "{{ frontend_title }}",
     "applicationUrl": "https://{{ server_domain }}",
-    "trustProxy": false,
+    "trustProxy": true,
     "csrfProtection": true,
     "hideAvailable": false,
     "partialRequestsEnabled": true,
-    "localLogin": false,
+    "localLogin": true,
     "newPlexLogin": false,
     "defaultPermissions": 32
   },
-  "plexServer": {
-    "ip": "{{ local_server_address }}",
-    "port": 32400,
+  "jellyfinSettings": {
+    "name": "{{ jellyfin_server_name }}",
+    "hostname": "jellyfin",
+    "port": 8096,
+    "apiKey": "",
     "useSsl": false,
-    "webAppUrl": "{{ local_server_uri }}"
+    "urlBase": "",
+    "externalHostname": "jellyfin.{{ server_domain }}",
+    "jellyfinForgotPasswordUrl": "",
+    "libraries": []
   },
   "radarrServer": {
     "name": "Radarr",
