@@ -83,7 +83,7 @@ ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags compos
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
 ```
 
-### Day-2 operations
+### Updates
 
 On the server, after the initial deploy:
 

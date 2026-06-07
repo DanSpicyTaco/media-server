@@ -182,6 +182,7 @@
         - config
 
     - name: Start media server stack
+      become: yes
       community.docker.docker_compose_v2:
         project_src: "{{ root_dir }}"
         state: present
@@ -192,7 +193,7 @@
         - seerr
 
     - name: Run one-shot service initialisation
-      command: "{{ root_dir }}/scripts/init-services.sh"
+      command: sg docker "{{ root_dir }}/scripts/init-services.sh"
       args:
         chdir: "{{ root_dir }}"
       register: init_result
