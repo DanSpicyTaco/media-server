@@ -13,7 +13,7 @@ certificatesresolvers:
   myresolver:
     acme:
       tlschallenge: true
-      email: "admin@{{ server_domain }}"
+      email: "{{ admin_email }}"
       storage: /letsencrypt/acme.json
 
 log:

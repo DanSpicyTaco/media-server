@@ -31,3 +31,20 @@ seerr_admin_username: "admin"
 prowlarr_server: "http://prowlarr:9696"
 radarr_server: "http://radarr:7878"
 sonarr_server: "http://sonarr:8989"
+
+# SSH (UFW allow rule) — set this if your VPS uses a non-standard SSH port,
+# otherwise the firewall will lock you out.
+ssh_port: 22
+
+# qBittorrent WebUI username (defaults to your SSH user)
+qbittorrent_username: "{{ ansible_user }}"
+
+# Pinned image versions (verified 2026-06-11). Bump deliberately, then re-run
+# the playbook with --tags compose.
+traefik_version: "v3"
+jellyfin_version: "10.11.11"
+qbittorrent_version: "5.2.1"
+radarr_version: "6.2.1"
+sonarr_version: "4.0.17"
+prowlarr_version: "2.4.0"
+seerr_version: "v3.2.0"

@@ -36,7 +36,11 @@ ansible-galaxy collection install -r requirements.yml
 
 ## Deployment
 
-Create an inventory file, `inventory.ini`:
+Copy the example inventory and fill in your values:
+
+```zsh
+cp inventory.example.ini inventory.ini
+```
 
 ```ini
 [media]
@@ -57,10 +61,13 @@ timezone=<your_timezone>
 qbittorrent_password=<XXXX>
 jellyfin_password=<XXXX>
 seerr_admin_password=<XXXX>
-prowlarr_api_key=<XXXX>
-radarr_api_key=<XXXX>
-sonarr_api_key=<XXXX>
 ```
+
+The *arr API keys are optional: when omitted they are auto-generated and
+stored in `.credentials/` next to your inventory (gitignored), so re-runs
+reuse the same keys. If your VPS uses a non-standard SSH port, set
+`ssh_port` in the inventory **before** the first run — the firewall only
+allows the configured port.
 
 > **Note:** Deployment assumes a VPS with a non-root user. Running everything as root creates security issues.
 
@@ -105,7 +112,7 @@ Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few 
 
 ## Customisation
 
-Override defaults in [`vars.yml`](vars.yml) (ports, paths, usernames). Secrets belong in `inventory.ini`, not in the repo.
+Override defaults in [`vars.yml`](vars.yml) (ports, paths, usernames, pinned image versions). Secrets belong in `inventory.ini`, not in the repo.
 
 ## DNS
 

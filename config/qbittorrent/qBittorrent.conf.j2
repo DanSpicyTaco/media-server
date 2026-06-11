@@ -23,7 +23,7 @@ Session\Port=6881
 Session\QueueingSystemEnabled=true
 Session\SSL\Port=3376
 Session\ShareLimitAction=Stop
-Session\TempPath=/downloads/incomplete/
+Session\TempPath=/data/torrents/incomplete/
 
 [Core]
 AutoDeleteAddedTorrentFile=Never
@@ -45,14 +45,14 @@ Proxy\Profiles\RSS=true
 [Preferences]
 Connection\PortRangeMin=6881
 Connection\UPnP=false
-Downloads\SavePath=/downloads/
-Downloads\TempPath=/downloads/incomplete/
+Downloads\SavePath=/data/torrents/
+Downloads\TempPath=/data/torrents/incomplete/
 General\Locale=en
 MailNotification\req_auth=true
 WebUI\Address=*
 WebUI\Password_PBKDF2="{{ qbittorrent_password_pbkdf2 }}"
 WebUI\ServerDomains=*
-WebUI\Username={{ ansible_user }}
+WebUI\Username={{ qbittorrent_username }}
 
 [RSS]
 AutoDownloader\DownloadRepacks=true

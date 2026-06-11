@@ -5,6 +5,35 @@
   vars_files:
     - vars.yml
 
+  pre_tasks:
+    - name: Validate required configuration
+      assert:
+        that:
+          - server_domain is defined
+          - admin_email is defined
+          - server_name is defined
+          - frontend_title is defined
+          - timezone is defined
+          - qbittorrent_password is defined
+          - jellyfin_password is defined
+          - seerr_admin_password is defined
+        fail_msg: >-
+          Missing required variables. Copy inventory.example.ini to
+          inventory.ini and fill in the [media:vars] section.
+      tags:
+        - always
+
+    - name: Auto-generate *arr API keys when not provided
+      set_fact:
+        "{{ item }}": "{{ lookup('ansible.builtin.password', inventory_dir ~ '/.credentials/' ~ item ~ ' chars=hexdigits length=32') | lower }}"
+      when: lookup('ansible.builtin.vars', item, default='') == ''
+      loop:
+        - prowlarr_api_key
+        - radarr_api_key
+        - sonarr_api_key
+      tags:
+        - always
+
   tasks:
     - name: Install Docker prerequisites
       become: yes
@@ -21,11 +50,22 @@
         - setup
         - docker
 
+    - name: Ensure apt keyrings directory exists
+      become: yes
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      tags:
+        - setup
+        - docker
+
     - name: Add Docker GPG key
       become: yes
-      apt_key:
+      get_url:
         url: https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}/gpg
-        state: present
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
       tags:
         - setup
         - docker
@@ -33,7 +73,7 @@
     - name: Add Docker apt repository
       become: yes
       apt_repository:
-        repo: "deb [arch={{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}] https://download.docker.com/linux/{{ ansible_facts.distribution | lower }} {{ ansible_facts.distribution_release }} stable"
+        repo: "deb [arch={{ ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_facts.distribution | lower }} {{ ansible_facts.distribution_release }} stable"
         state: present
         filename: docker
       tags:
@@ -119,27 +159,30 @@
         - directories
         - seerr
 
-    - name: Generate qBittorrent encrypted password
-      block:
-        - name: Download the password generator
-          get_url:
-            url: https://github.com/saltydk/qbt_pw_gen/releases/download/v1.0.2/qbt_pw_gen-v1.0.2-linux-amd64
-            dest: "{{ root_dir }}/config/qbt_pw_gen"
-            mode: "0755"
+    # qBittorrent stores its WebUI password as PBKDF2-HMAC-SHA512
+    # (100k iterations, 16-byte salt). Computed with the Python stdlib on the
+    # target host: works on any architecture and never exposes the password
+    # in process arguments.
+    - name: Generate qBittorrent PBKDF2 password hash
+      command:
+        cmd: >-
+          python3 -c "import base64,hashlib,os,sys;
+          pw=sys.stdin.read().rstrip('\n');
+          salt=os.urandom(16);
+          dk=hashlib.pbkdf2_hmac('sha512', pw.encode(), salt, 100000, dklen=64);
+          print('@ByteArray(%s:%s)' % (base64.b64encode(salt).decode(), base64.b64encode(dk).decode()))"
+        stdin: "{{ qbittorrent_password }}"
+      register: password_output
+      changed_when: false
+      no_log: true
+      tags:
+        - setup
+        - torrent
 
-        - name: Generate the password hash
-          command: "{{ root_dir }}/config/qbt_pw_gen {{ qbittorrent_password }}"
-          register: password_output
-          changed_when: false
-
-        - name: Store the generated password hash
-          set_fact:
-            qbittorrent_password_pbkdf2: "{{ password_output.stdout }}"
-
-        - name: Remove the password generator executable
-          file:
-            path: "{{ root_dir }}/config/qbt_pw_gen"
-            state: absent
+    - name: Store the generated password hash
+      set_fact:
+        qbittorrent_password_pbkdf2: "{{ password_output.stdout }}"
+      no_log: true
       tags:
         - setup
         - torrent
