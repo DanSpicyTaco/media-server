@@ -244,5 +244,23 @@
     "accessible": true,
     "freeSpace": 0,
     "unmappedFolders": []
+  },
+  "customFormat": {
+    "name": "x265/HEVC",
+    "includeCustomFormatWhenRenaming": false,
+    "specifications": [
+      {
+        "name": "x265/HEVC Release Title",
+        "implementation": "ReleaseTitleSpecification",
+        "negate": false,
+        "required": true,
+        "fields": [
+          {
+            "name": "value",
+            "value": "(((x|h)\\.?265)|(HEVC))"
+          }
+        ]
+      }
+    ]
   }
 }

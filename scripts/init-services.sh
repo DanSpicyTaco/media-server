@@ -222,6 +222,73 @@ setup_prowlarr() {
   mark_done "prowlarr"
 }
 
+# --- Codec policy (block x265/HEVC) --------------------------------------------
+# Chromecast (non-Ultra) can only direct-play H.264. Create an "x265/HEVC"
+# custom format, score it -10000 in every quality profile, and set the
+# minimum custom format score to 0 so x265/HEVC releases are never grabbed.
+
+apply_codec_policy() {
+  local app="$1" base="$2" api_key="$3" config_file="$4"
+  local step="${app}-codec-policy"
+
+  if is_done "${step}"; then
+    log "${app} codec policy already applied, skipping"
+    return
+  fi
+
+  wait_for_http "${base}/ping" "${app}"
+
+  local cf_payload cf_name
+  cf_payload="$(python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['customFormat']))" < "${config_file}")"
+  cf_name="$(echo "${cf_payload}" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")"
+
+  # Create the custom format if it doesn't already exist
+  local existing_cfs cf_id
+  existing_cfs="$(curl -sf "${base}/api/v3/customformat" -H "X-Api-Key: ${api_key}" || echo "[]")"
+  cf_id="$(echo "${existing_cfs}" | CF_NAME="${cf_name}" python3 -c "
+import sys, json, os
+cfs = json.load(sys.stdin)
+match = [c['id'] for c in cfs if c.get('name') == os.environ['CF_NAME']]
+print(match[0] if match else '')
+")"
+
+  if [[ -z "${cf_id}" ]]; then
+    log "Creating ${app} custom format '${cf_name}'"
+    cf_id="$(curl -sf -X POST "${base}/api/v3/customformat" \
+      -H "Content-Type: application/json" \
+      -H "X-Api-Key: ${api_key}" \
+      -d "${cf_payload}" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+  fi
+  [[ -n "${cf_id}" ]] || die "Failed to create ${app} custom format '${cf_name}'"
+
+  # Score it -10000 in every quality profile and refuse anything below 0
+  local updated_profiles
+  updated_profiles="$(curl -sf "${base}/api/v3/qualityprofile" -H "X-Api-Key: ${api_key}" | CF_ID="${cf_id}" python3 -c "
+import sys, json, os
+cf_id = int(os.environ['CF_ID'])
+for p in json.load(sys.stdin):
+    for item in p.get('formatItems', []):
+        if item.get('format') == cf_id:
+            item['score'] = -10000
+    p['minFormatScore'] = 0
+    print(json.dumps(p))
+")"
+
+  local profile profile_id
+  while IFS= read -r profile; do
+    [[ -n "${profile}" ]] || continue
+    profile_id="$(echo "${profile}" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+    log "Scoring '${cf_name}' in ${app} quality profile ${profile_id}"
+    curl -sf -X PUT "${base}/api/v3/qualityprofile/${profile_id}" \
+      -H "Content-Type: application/json" \
+      -H "X-Api-Key: ${api_key}" \
+      -d "${profile}" >/dev/null
+  done <<< "${updated_profiles}"
+
+  mark_done "${step}"
+  log "${app} codec policy applied"
+}
+
 # --- Seerr --------------------------------------------------------------------
 
 setup_seerr() {
@@ -360,6 +427,8 @@ main() {
   setup_radarr
   setup_sonarr
   setup_prowlarr
+  apply_codec_policy "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
+  apply_codec_policy "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
   setup_seerr
 
   log "All services initialised"
