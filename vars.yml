@@ -23,9 +23,8 @@ jellyfin_port: 8096
 jellyfin_username: "admin"
 jellyfin_server_name: "{{ server_name }}"
 
-# Seerr
-seerr_admin_email: "admin@{{ server_domain }}"
-seerr_admin_username: "admin"
+# Seerr's admin account is created by authenticating against Jellyfin during
+# init, so it reuses the Jellyfin username/password — no separate Seerr vars.
 
 # Internal service URLs (Docker network hostnames)
 prowlarr_server: "http://prowlarr:9696"

@@ -14,9 +14,6 @@
           - server_name is defined
           - frontend_title is defined
           - timezone is defined
-          - qbittorrent_password is defined
-          - jellyfin_password is defined
-          - seerr_admin_password is defined
         fail_msg: >-
           Missing required variables. Copy inventory.example.ini to
           inventory.ini and fill in the [media:vars] section.
@@ -31,6 +28,21 @@
         - prowlarr_api_key
         - radarr_api_key
         - sonarr_api_key
+      tags:
+        - always
+
+    # Persisted to .credentials/ so re-runs reuse the same value — the init
+    # script only creates each user once, so a changing password would lock
+    # you out. Charset is alphanumeric only: these are sourced from .env by
+    # bash and embedded in curl JSON, so shell/JSON-special chars would break.
+    - name: Auto-generate passwords when not provided
+      set_fact:
+        "{{ item }}": "{{ lookup('ansible.builtin.password', inventory_dir ~ '/.credentials/' ~ item ~ ' chars=ascii_letters,digits length=24') }}"
+      when: lookup('ansible.builtin.vars', item, default='') == ''
+      loop:
+        - jellyfin_password
+        - qbittorrent_password
+      no_log: true
       tags:
         - always
 

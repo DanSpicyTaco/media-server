@@ -57,15 +57,17 @@ server_name=<server_name>
 frontend_title=<name_in_website>
 timezone=<your_timezone>
 
-# Secrets — see .env.example for descriptions
-qbittorrent_password=<XXXX>
-jellyfin_password=<XXXX>
-seerr_admin_password=<XXXX>
+# Optional — see .env.example. Passwords and *arr API keys are auto-generated
+# when omitted; set them here to choose your own.
+# qbittorrent_password=<XXXX>
+# jellyfin_password=<XXXX>
 ```
 
-The *arr API keys are optional: when omitted they are auto-generated and
-stored in `.credentials/` next to your inventory (gitignored), so re-runs
-reuse the same keys. If your VPS uses a non-standard SSH port, set
+The passwords and *arr API keys are optional: when omitted they are
+auto-generated and stored in `.credentials/` next to your inventory
+(gitignored), so re-runs reuse the same values. Seerr has no separate login —
+it reuses the Jellyfin username/password. If your VPS uses a non-standard SSH
+port, set
 `ssh_port` in the inventory **before** the first run — the firewall only
 allows the configured port.
 
