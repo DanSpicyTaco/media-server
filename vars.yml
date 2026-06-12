@@ -23,6 +23,14 @@ jellyfin_port: 8096
 jellyfin_username: "admin"
 jellyfin_server_name: "{{ server_name }}"
 
+# Streaming profile — which set of "blocked" custom formats the init script
+# enforces in Radarr/Sonarr so grabs stay playable on your target client.
+#   chromecast-2018 — H.264 <=1080p, no HEVC/DTS/TrueHD/4K/interlaced (default)
+#   none            — no restrictions (lifts any previously-applied blocks)
+# Override per-deploy in inventory.ini [media:vars]. Profiles are defined in
+# config/init/{radarr,sonarr}.json.j2.
+streaming_profile: "chromecast-2018"
+
 # Seerr's admin account is created by authenticating against Jellyfin during
 # init, so it reuses the Jellyfin username/password — no separate Seerr vars.
 

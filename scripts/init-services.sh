@@ -213,59 +213,76 @@ setup_prowlarr() {
   mark_done "prowlarr"
 }
 
-# --- Codec policy (block x265/HEVC) --------------------------------------------
-# Chromecast (non-Ultra) can only direct-play H.264. Create an "x265/HEVC"
-# custom format, score it -10000 in every quality profile, and set the
-# minimum custom format score to 0 so x265/HEVC releases are never grabbed.
+# --- Streaming profile (codec/quality policy) ---------------------------------
+# A streaming profile is a named set of "blocked" custom formats, selected via
+# the STREAMING_PROFILE env var. Each blocked format is scored -10000 in every
+# quality profile with minFormatScore=0, so matching releases are never grabbed.
+# e.g. "chromecast-2018" blocks HEVC, DTS/TrueHD, 4K and interlaced/raw captures
+# so everything stays H.264 <=1080p and direct-plays without transcoding.
+#
+# This runs every time (no is_done guard) and is a full reconciler: it un-scores
+# any managed format that is not in the selected profile, so switching profiles
+# or setting STREAMING_PROFILE=none cleanly removes previous restrictions.
 
-apply_codec_policy() {
+apply_streaming_profile() {
   local app="$1" base="$2" api_key="$3" config_file="$4"
-  local step="${app}-codec-policy"
-
-  if is_done "${step}"; then
-    log "${app} codec policy already applied, skipping"
-    return
-  fi
+  local profile_name="${STREAMING_PROFILE:-none}"
 
   wait_for_http "${base}/ping" "${app}"
 
-  local cf_payload cf_name
-  cf_payload="$(jq -c '.customFormat' "${config_file}")"
-  cf_name="$(echo "${cf_payload}" | jq -r '.name')"
+  # All format names this tool manages (across every defined profile) and the
+  # subset to block for the selected profile.
+  local managed_names block_cfs block_names block_count
+  managed_names="$(jq -c '[.streamingProfiles[].customFormats[].name] | unique' "${config_file}")"
+  block_cfs="$(jq -c --arg p "${profile_name}" '.streamingProfiles[$p].customFormats // []' "${config_file}")"
+  block_names="$(echo "${block_cfs}" | jq -c '[.[].name]')"
+  block_count="$(echo "${block_cfs}" | jq 'length')"
+  log "${app}: applying streaming profile '${profile_name}' (${block_count} blocked formats)"
 
-  # Create the custom format if it doesn't already exist
-  local existing_cfs cf_id
+  # Ensure every format the selected profile blocks exists.
+  local existing_cfs cf name id
   existing_cfs="$(curl -sf "${base}/api/v3/customformat" -H "X-Api-Key: ${api_key}" || echo "[]")"
-  cf_id="$(echo "${existing_cfs}" | jq -r --arg name "${cf_name}" '[.[] | select(.name == $name)] | first.id // empty')"
+  while IFS= read -r cf; do
+    [[ -n "${cf}" ]] || continue
+    name="$(echo "${cf}" | jq -r '.name')"
+    id="$(echo "${existing_cfs}" | jq -r --arg n "${name}" '[.[] | select(.name == $n)] | first.id // empty')"
+    if [[ -z "${id}" ]]; then
+      log "${app}: creating custom format '${name}'"
+      curl -sf -X POST "${base}/api/v3/customformat" \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: ${api_key}" \
+        -d "${cf}" >/dev/null || die "Failed to create ${app} custom format '${name}'"
+    fi
+  done < <(echo "${block_cfs}" | jq -c '.[]')
 
-  if [[ -z "${cf_id}" ]]; then
-    log "Creating ${app} custom format '${cf_name}'"
-    cf_id="$(curl -sf -X POST "${base}/api/v3/customformat" \
-      -H "Content-Type: application/json" \
-      -H "X-Api-Key: ${api_key}" \
-      -d "${cf_payload}" | jq -r '.id // empty')"
-  fi
-  [[ -n "${cf_id}" ]] || die "Failed to create ${app} custom format '${cf_name}'"
+  # Re-fetch and resolve the block/managed id sets by name.
+  existing_cfs="$(curl -sf "${base}/api/v3/customformat" -H "X-Api-Key: ${api_key}" || echo "[]")"
+  local block_ids managed_ids
+  block_ids="$(echo "${existing_cfs}" | jq -c --argjson names "${block_names}" '[.[] | select(.name as $n | $names | index($n)) | .id]')"
+  managed_ids="$(echo "${existing_cfs}" | jq -c --argjson names "${managed_names}" '[.[] | select(.name as $n | $names | index($n)) | .id]')"
 
-  # Score it -10000 in every quality profile and refuse anything below 0
-  local updated_profiles
+  # Reconcile scores in every quality profile: block set -> -10000, other
+  # managed formats -> 0 (so a previous profile's blocks are lifted).
+  local updated_profiles profile profile_id
   updated_profiles="$(curl -sf "${base}/api/v3/qualityprofile" -H "X-Api-Key: ${api_key}" \
-    | jq -c --argjson cf_id "${cf_id}" \
-        '.[] | (.formatItems[] | select(.format == $cf_id)).score = -10000 | .minFormatScore = 0')"
+    | jq -c --argjson block "${block_ids}" --argjson managed "${managed_ids}" \
+        '.[]
+         | .formatItems |= map(
+             if   (.format as $f | $block   | index($f)) then .score = -10000
+             elif (.format as $f | $managed | index($f)) then .score = 0
+             else . end)
+         | .minFormatScore = 0')"
 
-  local profile profile_id
   while IFS= read -r profile; do
     [[ -n "${profile}" ]] || continue
     profile_id="$(echo "${profile}" | jq -r '.id')"
-    log "Scoring '${cf_name}' in ${app} quality profile ${profile_id}"
     curl -sf -X PUT "${base}/api/v3/qualityprofile/${profile_id}" \
       -H "Content-Type: application/json" \
       -H "X-Api-Key: ${api_key}" \
       -d "${profile}" >/dev/null
   done <<< "${updated_profiles}"
 
-  mark_done "${step}"
-  log "${app} codec policy applied"
+  log "${app}: streaming profile '${profile_name}' applied"
 }
 
 # --- Seerr --------------------------------------------------------------------
@@ -392,8 +409,8 @@ main() {
   setup_radarr
   setup_sonarr
   setup_prowlarr
-  apply_codec_policy "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
-  apply_codec_policy "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
+  apply_streaming_profile "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
+  apply_streaming_profile "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
   setup_seerr
 
   log "All services initialised"

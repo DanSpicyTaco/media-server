@@ -116,6 +116,38 @@ Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few 
 
 Override defaults in [`vars.yml`](vars.yml) (ports, paths, usernames, pinned image versions). Secrets belong in `inventory.ini`, not in the repo.
 
+## Streaming profiles
+
+The init script enforces a **streaming profile** in Radarr and Sonarr — a named
+set of release rules that keeps grabs playable on your target client without
+server-side transcoding (important on a low-power VPS with no GPU). Each profile
+is a list of "blocked" custom formats scored `-10000`, so matching releases are
+never grabbed.
+
+Select one with `streaming_profile` in `inventory.ini` (default
+`chromecast-2018`):
+
+| Profile | Effect |
+| --- | --- |
+| `chromecast-2018` | H.264, ≤1080p, progressive only — blocks HEVC, DTS/TrueHD, 4K, and interlaced/raw (`1080i`/`Raw-HD`) captures so a 2018 Chromecast direct-plays everything. |
+| `none` | No restrictions. Lifts any blocks a previous profile applied. |
+
+Profiles are defined under `streamingProfiles` in
+[`config/init/radarr.json.j2`](config/init/radarr.json.j2) and
+[`config/init/sonarr.json.j2`](config/init/sonarr.json.j2) — add a key there to
+define your own. The init step is a reconciler: changing the profile and
+re-running propagates the switch (including removing old blocks).
+
+```zsh
+# Switch profile after editing inventory.ini
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,init
+```
+
+> Matching is by release title (except 4K, which uses the parsed resolution), so
+> it is best-effort — the same trade-off as any *arr custom format. It only
+> affects **future** grabs; replace existing incompatible files to have them
+> re-fetched.
+
 ## DNS
 
 Traefik obtains TLS certificates via ACME. Ensure these hostnames resolve to your VPS before the first deploy:
