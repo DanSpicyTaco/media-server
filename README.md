@@ -57,7 +57,7 @@ server_name=<server_name>
 frontend_title=<name_in_website>
 timezone=<your_timezone>
 
-# Optional — see .env.example. Passwords and *arr API keys are auto-generated
+# Optional. Passwords and *arr API keys are auto-generated
 # when omitted; set them here to choose your own.
 # qbittorrent_password=<XXXX>
 # jellyfin_password=<XXXX>
