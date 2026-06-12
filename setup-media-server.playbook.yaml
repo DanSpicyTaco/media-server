@@ -190,6 +190,7 @@
       no_log: true
       tags:
         - setup
+        - config
         - torrent
 
     - name: Store the generated password hash
@@ -198,6 +199,7 @@
       no_log: true
       tags:
         - setup
+        - config
         - torrent
 
     - name: Template stack configuration files
