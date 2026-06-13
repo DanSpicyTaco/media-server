@@ -116,37 +116,48 @@ Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few 
 
 Override defaults in [`vars.yml`](vars.yml) (ports, paths, usernames, pinned image versions). Secrets belong in `inventory.ini`, not in the repo.
 
-## Streaming profiles
+## Streaming quality profiles
 
-The init script enforces a **streaming profile** in Radarr and Sonarr — a named
-set of release rules that keeps grabs playable on your target client without
-server-side transcoding (important on a low-power VPS with no GPU). Each profile
-is a list of "blocked" custom formats scored `-10000`, so matching releases are
-never grabbed.
+The init script creates named, **Seerr-selectable quality profiles** in Radarr
+and Sonarr that bake in release rules to keep grabs playable on a given client
+without server-side transcoding (important on a low-power VPS with no GPU). Each
+is a normal quality profile with a set of "blocked" custom formats scored
+`-10000`, so matching releases are never grabbed.
 
-Select one with `streaming_profile` in `inventory.ini` (default
-`chromecast-2018`):
+Out of the box one profile is defined — **Chromecast 2018** (H.264, ≤1080p,
+progressive only: blocks HEVC, DTS/TrueHD, 4K, and interlaced/raw `1080i`/`Raw-HD`
+captures so a 2018 Chromecast direct-plays everything):
 
-| Profile | Effect |
-| --- | --- |
-| `chromecast-2018` | H.264, ≤1080p, progressive only — blocks HEVC, DTS/TrueHD, 4K, and interlaced/raw (`1080i`/`Raw-HD`) captures so a 2018 Chromecast direct-plays everything. |
-| `none` | No restrictions. Lifts any blocks a previous profile applied. |
+- **To cast a title:** in the Seerr request dialog, open **Advanced** and pick
+  **Chromecast 2018**.
+- **Otherwise:** request normally — the default profile (`HD - 720p/1080p`) is
+  left unrestricted, for playback on clients that decode HEVC/DTS natively.
 
-Profiles are defined under `streamingProfiles` in
+Admins get the Advanced profile picker by default; regular users always get the
+default profile. Profiles are defined under `qualityProfiles` in
 [`config/init/radarr.json.j2`](config/init/radarr.json.j2) and
-[`config/init/sonarr.json.j2`](config/init/sonarr.json.j2) — add a key there to
-define your own. The init step is a reconciler: changing the profile and
-re-running propagates the switch (including removing old blocks).
+[`config/init/sonarr.json.j2`](config/init/sonarr.json.j2) — each clones a base
+profile (`cloneFrom`) and lists the custom formats to block. Add an entry to
+define your own (e.g. an `Apple TV` profile); the init step is an idempotent
+reconciler, so re-running creates/updates them and clears any stale scores.
 
 ```zsh
-# Switch profile after editing inventory.ini
+# Apply profile changes after editing the init JSON
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,init
 ```
 
-> Matching is by release title (except 4K, which uses the parsed resolution), so
-> it is best-effort — the same trade-off as any *arr custom format. It only
-> affects **future** grabs; replace existing incompatible files to have them
-> re-fetched.
+Notes:
+
+- **Off by default:** normal requests are *not* restricted, so remember to pick
+  **Chromecast 2018** for anything you'll cast. To make it the safe default
+  instead, point Seerr's default `activeProfileName` (in
+  [`seerr.json.j2`](config/init/seerr.json.j2)) at `Chromecast 2018`.
+- **One file per title**, chosen at download time — you can't keep both a cast
+  copy and a 4K copy of the same movie without a separate Radarr instance, and a
+  full-quality grab will still fail to cast on this server since it can't transcode.
+- Matching is by release title (except 4K, which uses the parsed resolution), so
+  it is best-effort — the same trade-off as any *arr custom format — and only
+  affects **future** grabs.
 
 ## DNS
 

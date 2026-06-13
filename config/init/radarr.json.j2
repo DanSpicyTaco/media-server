@@ -249,83 +249,85 @@
     "unmappedFolders": [],
     "id": 0
   },
-  "streamingProfiles": {
-    "chromecast-2018": {
-      "description": "Direct-play only for a 2018 Chromecast on a low-power server: H.264, <=1080p, progressive, no HEVC, no DTS/TrueHD, no 4K, no interlaced/raw captures.",
-      "customFormats": [
+  "customFormats": [
+    {
+      "name": "x265/HEVC",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
         {
-          "name": "x265/HEVC",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
+          "name": "x265/HEVC Release Title",
+          "implementation": "ReleaseTitleSpecification",
+          "negate": false,
+          "required": true,
+          "fields": [
             {
-              "name": "x265/HEVC Release Title",
-              "implementation": "ReleaseTitleSpecification",
-              "negate": false,
-              "required": true,
-              "fields": [
-                {
-                  "name": "value",
-                  "value": "(((x|h)\\.?265)|(HEVC))"
-                }
-              ]
+              "name": "value",
+              "value": "(((x|h)\\.?265)|(HEVC))"
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "DTS/TrueHD Audio",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
         {
-          "name": "DTS/TrueHD Audio",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
+          "name": "DTS/TrueHD Release Title",
+          "implementation": "ReleaseTitleSpecification",
+          "negate": false,
+          "required": true,
+          "fields": [
             {
-              "name": "DTS/TrueHD Release Title",
-              "implementation": "ReleaseTitleSpecification",
-              "negate": false,
-              "required": true,
-              "fields": [
-                {
-                  "name": "value",
-                  "value": "(DTS([ ._-]?(HD|ES|X|MA))?|TrueHD)"
-                }
-              ]
+              "name": "value",
+              "value": "(DTS([ ._-]?(HD|ES|X|MA))?|TrueHD)"
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "2160p/4K",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
         {
-          "name": "2160p/4K",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
+          "name": "2160p Resolution",
+          "implementation": "ResolutionSpecification",
+          "negate": false,
+          "required": true,
+          "fields": [
             {
-              "name": "2160p Resolution",
-              "implementation": "ResolutionSpecification",
-              "negate": false,
-              "required": true,
-              "fields": [
-                {
-                  "name": "value",
-                  "value": 2160
-                }
-              ]
+              "name": "value",
+              "value": 2160
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "Interlaced/Raw Capture",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
         {
-          "name": "Interlaced/Raw Capture",
-          "includeCustomFormatWhenRenaming": false,
-          "specifications": [
+          "name": "Interlaced/Raw Release Title",
+          "implementation": "ReleaseTitleSpecification",
+          "negate": false,
+          "required": true,
+          "fields": [
             {
-              "name": "Interlaced/Raw Release Title",
-              "implementation": "ReleaseTitleSpecification",
-              "negate": false,
-              "required": true,
-              "fields": [
-                {
-                  "name": "value",
-                  "value": "(1080i|\\bRaw[ ._-]?HD\\b)"
-                }
-              ]
+              "name": "value",
+              "value": "(1080i|\\bRaw[ ._-]?HD\\b)"
             }
           ]
         }
       ]
     }
-  }
+  ],
+  "qualityProfiles": [
+    {
+      "name": "Chromecast 2018",
+      "cloneFrom": "HD - 720p/1080p",
+      "blockFormats": ["x265/HEVC", "DTS/TrueHD Audio", "2160p/4K", "Interlaced/Raw Capture"]
+    }
+  ]
 }

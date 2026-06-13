@@ -213,33 +213,33 @@ setup_prowlarr() {
   mark_done "prowlarr"
 }
 
-# --- Streaming profile (codec/quality policy) ---------------------------------
-# A streaming profile is a named set of "blocked" custom formats, selected via
-# the STREAMING_PROFILE env var. Each blocked format is scored -10000 in every
-# quality profile with minFormatScore=0, so matching releases are never grabbed.
-# e.g. "chromecast-2018" blocks HEVC, DTS/TrueHD, 4K and interlaced/raw captures
-# so everything stays H.264 <=1080p and direct-plays without transcoding.
+# --- Quality profiles (codec/streaming policy) --------------------------------
+# Creates named, Seerr-selectable quality profiles that bake in a set of
+# "blocked" custom formats (scored -10000 with minFormatScore=0, so matching
+# releases are never grabbed). e.g. "Chromecast 2018" blocks HEVC, DTS/TrueHD,
+# 4K and interlaced/raw captures, so picking it in Seerr keeps a grab H.264
+# <=1080p and direct-playable without transcoding. Other profiles (including the
+# Seerr default) are left unrestricted — you opt in by selecting a managed
+# profile per request.
 #
-# This runs every time (no is_done guard) and is a full reconciler: it un-scores
-# any managed format that is not in the selected profile, so switching profiles
-# or setting STREAMING_PROFILE=none cleanly removes previous restrictions.
+# Runs every time (no is_done guard) as a reconciler: each managed profile is
+# created by cloning its `cloneFrom` base if missing, its block formats scored
+# -10000; managed custom formats are reset to 0 in every non-managed profile so
+# a previous policy leaves no residue. Emptying `qualityProfiles` disables it.
 
-apply_streaming_profile() {
+apply_quality_profiles() {
   local app="$1" base="$2" api_key="$3" config_file="$4"
-  local profile_name="${STREAMING_PROFILE:-none}"
 
   wait_for_http "${base}/ping" "${app}"
 
-  # All format names this tool manages (across every defined profile) and the
-  # subset to block for the selected profile.
-  local managed_names block_cfs block_names block_count
-  managed_names="$(jq -c '[.streamingProfiles[].customFormats[].name] | unique' "${config_file}")"
-  block_cfs="$(jq -c --arg p "${profile_name}" '.streamingProfiles[$p].customFormats // []' "${config_file}")"
-  block_names="$(echo "${block_cfs}" | jq -c '[.[].name]')"
-  block_count="$(echo "${block_cfs}" | jq 'length')"
-  log "${app}: applying streaming profile '${profile_name}' (${block_count} blocked formats)"
+  local managed_cfs managed_cf_names profiles_cfg managed_profile_names
+  managed_cfs="$(jq -c '.customFormats' "${config_file}")"
+  managed_cf_names="$(echo "${managed_cfs}" | jq -c '[.[].name]')"
+  profiles_cfg="$(jq -c '.qualityProfiles' "${config_file}")"
+  managed_profile_names="$(echo "${profiles_cfg}" | jq -r 'map(.name) | join(", ")')"
+  log "${app}: ensuring quality profiles [${managed_profile_names}]"
 
-  # Ensure every format the selected profile blocks exists.
+  # 1. Ensure every managed custom format exists.
   local existing_cfs cf name id
   existing_cfs="$(curl -sf "${base}/api/v3/customformat" -H "X-Api-Key: ${api_key}" || echo "[]")"
   while IFS= read -r cf; do
@@ -253,20 +253,46 @@ apply_streaming_profile() {
         -H "X-Api-Key: ${api_key}" \
         -d "${cf}" >/dev/null || die "Failed to create ${app} custom format '${name}'"
     fi
-  done < <(echo "${block_cfs}" | jq -c '.[]')
+  done < <(echo "${managed_cfs}" | jq -c '.[]')
 
-  # Re-fetch and resolve the block/managed id sets by name.
+  # Resolve managed custom-format ids: a name->id map and a flat id list.
   existing_cfs="$(curl -sf "${base}/api/v3/customformat" -H "X-Api-Key: ${api_key}" || echo "[]")"
-  local block_ids managed_ids
-  block_ids="$(echo "${existing_cfs}" | jq -c --argjson names "${block_names}" '[.[] | select(.name as $n | $names | index($n)) | .id]')"
-  managed_ids="$(echo "${existing_cfs}" | jq -c --argjson names "${managed_names}" '[.[] | select(.name as $n | $names | index($n)) | .id]')"
+  local cf_id_by_name managed_cf_ids
+  cf_id_by_name="$(echo "${existing_cfs}" | jq -c 'map({key: .name, value: .id}) | from_entries')"
+  managed_cf_ids="$(echo "${existing_cfs}" | jq -c --argjson names "${managed_cf_names}" '[.[] | select(.name as $n | $names | index($n)) | .id]')"
 
-  # Reconcile scores in every quality profile: block set -> -10000, other
-  # managed formats -> 0 (so a previous profile's blocks are lifted).
-  local updated_profiles profile profile_id
+  # 2. Ensure each managed quality profile exists, cloning its base if missing.
+  #    Scores are set in step 3, so creation just clones + renames.
+  local all_profiles prof pname clone_from base_profile new_profile
+  while IFS= read -r prof; do
+    [[ -n "${prof}" ]] || continue
+    pname="$(echo "${prof}" | jq -r '.name')"
+    all_profiles="$(curl -sf "${base}/api/v3/qualityprofile" -H "X-Api-Key: ${api_key}" || echo "[]")"
+    if echo "${all_profiles}" | jq -e --arg n "${pname}" 'any(.[]; .name == $n)' >/dev/null; then
+      continue
+    fi
+    clone_from="$(echo "${prof}" | jq -r '.cloneFrom')"
+    base_profile="$(echo "${all_profiles}" | jq -c --arg n "${clone_from}" 'map(select(.name == $n)) | first // empty')"
+    [[ -n "${base_profile}" ]] || die "${app}: cannot create '${pname}' — base profile '${clone_from}' not found"
+    log "${app}: creating quality profile '${pname}' (cloned from '${clone_from}')"
+    new_profile="$(echo "${base_profile}" | jq -c --arg n "${pname}" 'del(.id) | .name = $n')"
+    curl -sf -X POST "${base}/api/v3/qualityprofile" \
+      -H "Content-Type: application/json" \
+      -H "X-Api-Key: ${api_key}" \
+      -d "${new_profile}" >/dev/null || die "Failed to create ${app} quality profile '${pname}'"
+  done < <(echo "${profiles_cfg}" | jq -c '.[]')
+
+  # 3. Reconcile scores everywhere. A managed profile scores its own block set
+  #    -10000 (other managed formats 0); every other profile resets all managed
+  #    formats to 0, so an earlier policy leaves no residue.
+  local block_map updated_profiles profile profile_id
+  block_map="$(jq -c --argjson ids "${cf_id_by_name}" \
+    '.qualityProfiles | map({key: .name, value: [.blockFormats[] | $ids[.] // empty]}) | from_entries' "${config_file}")"
+
   updated_profiles="$(curl -sf "${base}/api/v3/qualityprofile" -H "X-Api-Key: ${api_key}" \
-    | jq -c --argjson block "${block_ids}" --argjson managed "${managed_ids}" \
+    | jq -c --argjson blockMap "${block_map}" --argjson managed "${managed_cf_ids}" \
         '.[]
+         | ($blockMap[.name] // []) as $block
          | .formatItems |= map(
              if   (.format as $f | $block   | index($f)) then .score = -10000
              elif (.format as $f | $managed | index($f)) then .score = 0
@@ -282,7 +308,7 @@ apply_streaming_profile() {
       -d "${profile}" >/dev/null
   done <<< "${updated_profiles}"
 
-  log "${app}: streaming profile '${profile_name}' applied"
+  log "${app}: quality profiles applied"
 }
 
 # --- Seerr --------------------------------------------------------------------
@@ -409,8 +435,8 @@ main() {
   setup_radarr
   setup_sonarr
   setup_prowlarr
-  apply_streaming_profile "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
-  apply_streaming_profile "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
+  apply_quality_profiles "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
+  apply_quality_profiles "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
   setup_seerr
 
   log "All services initialised"
