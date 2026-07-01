@@ -118,6 +118,33 @@ services:
       retries: 5
       start_period: 90s
 
+  bazarr:
+    image: linuxserver/bazarr:{{ bazarr_version }}
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./media-management/bazarr:/config
+      - ./content:/data
+    ports:
+      - "127.0.0.1:${BAZARR_PORT}:6767"
+    restart: unless-stopped
+    networks:
+      - {{ internal_network }}
+    depends_on:
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:6767/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
   jellyfin:
     image: linuxserver/jellyfin:{{ jellyfin_version }}
     container_name: jellyfin

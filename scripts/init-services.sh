@@ -213,6 +213,93 @@ setup_prowlarr() {
   mark_done "prowlarr"
 }
 
+# --- Bazarr (subtitles) -------------------------------------------------------
+# Bazarr generates its own API key in config.yaml on first boot, so we boot it,
+# read the key back (same pattern as Jellyfin), persist it to .env, then push
+# Sonarr/Radarr connections, providers and an English language profile via the
+# settings API. Config is applied over the API (not by seeding config.yaml)
+# because Bazarr normalises/rewrites config.yaml on every start.
+
+setup_bazarr() {
+  if is_done "bazarr"; then
+    log "Bazarr already initialised, skipping"
+    return
+  fi
+
+  local base="http://127.0.0.1:${BAZARR_PORT}"
+  local config="${INIT_DIR}/bazarr.json"
+  local config_yaml="${ROOT_DIR}/media-management/bazarr/config/config.yaml"
+
+  # Bazarr serves its UI at / without auth by default; API needs the key.
+  wait_for_http "${base}/" "Bazarr"
+
+  # Read back the API key Bazarr wrote under the `auth:` block of config.yaml.
+  log "Reading Bazarr API key from ${config_yaml}"
+  local bazarr_key=""
+  for ((i = 1; i <= 30; i++)); do
+    if [[ -f "${config_yaml}" ]]; then
+      bazarr_key="$(awk '/^auth:/{f=1;next} f&&/^[A-Za-z]/{f=0} f&&/apikey:/{gsub(/["\x27[:space:]]/,"",$2); print $2; exit}' "${config_yaml}")"
+      [[ -n "${bazarr_key}" ]] && break
+    fi
+    sleep 3
+  done
+  [[ -n "${bazarr_key}" ]] || die "Failed to read Bazarr API key from ${config_yaml}"
+  log "Got Bazarr API key"
+
+  # Persist to .env (mirrors JELLYFIN_API_KEY) for visibility / re-use.
+  if grep -q '^BAZARR_API_KEY=' "${ROOT_DIR}/.env"; then
+    sed -i "s|^BAZARR_API_KEY=.*|BAZARR_API_KEY=${bazarr_key}|" "${ROOT_DIR}/.env"
+  else
+    echo "BAZARR_API_KEY=${bazarr_key}" >> "${ROOT_DIR}/.env"
+  fi
+
+  local hdr="X-API-KEY: ${bazarr_key}"
+
+  # 1. Sonarr + Radarr connections and enabled providers. The settings endpoint
+  #    is form-encoded (settings-<section>-<key>); list fields are repeated.
+  log "Configuring Bazarr connections + providers"
+  local conn_result
+  conn_result="$(curl -s -X POST "${base}/api/system/settings" -H "${hdr}" \
+    --data-urlencode "settings-general-use_sonarr=true" \
+    --data-urlencode "settings-general-use_radarr=true" \
+    --data-urlencode "settings-general-enabled_providers=$(jq -r '.enabledProviders[0]' "${config}")" \
+    --data-urlencode "settings-general-enabled_providers=$(jq -r '.enabledProviders[1]' "${config}")" \
+    --data-urlencode "settings-sonarr-ip=$(jq -r '.sonarr.ip' "${config}")" \
+    --data-urlencode "settings-sonarr-port=$(jq -r '.sonarr.port' "${config}")" \
+    --data-urlencode "settings-sonarr-base_url=$(jq -r '.sonarr.base_url' "${config}")" \
+    --data-urlencode "settings-sonarr-ssl=$(jq -r '.sonarr.ssl' "${config}")" \
+    --data-urlencode "settings-sonarr-apikey=${SONARR_API_KEY}" \
+    --data-urlencode "settings-radarr-ip=$(jq -r '.radarr.ip' "${config}")" \
+    --data-urlencode "settings-radarr-port=$(jq -r '.radarr.port' "${config}")" \
+    --data-urlencode "settings-radarr-base_url=$(jq -r '.radarr.base_url' "${config}")" \
+    --data-urlencode "settings-radarr-ssl=$(jq -r '.radarr.ssl' "${config}")" \
+    --data-urlencode "settings-radarr-apikey=${RADARR_API_KEY}" \
+    2>&1 || true)"
+  log "Connections result: ${conn_result:-<empty=ok>}"
+
+  # 2. Enable English, create the English language profile, set it as the
+  #    series + movie default. Profiles are one JSON-string field.
+  log "Configuring Bazarr English language profile"
+  local prof_result
+  prof_result="$(curl -s -X POST "${base}/api/system/settings" -H "${hdr}" \
+    --data-urlencode "languages-enabled=$(jq -r '.languagesEnabled[0]' "${config}")" \
+    --data-urlencode "languages-profiles=$(jq -c '[.languageProfile]' "${config}")" \
+    --data-urlencode "settings-general-serie_default_enabled=true" \
+    --data-urlencode "settings-general-serie_default_profile=$(jq -r '.languageProfile.profileId' "${config}")" \
+    --data-urlencode "settings-general-movie_default_enabled=true" \
+    --data-urlencode "settings-general-movie_default_profile=$(jq -r '.languageProfile.profileId' "${config}")" \
+    2>&1 || true)"
+  log "Profile result: ${prof_result:-<empty=ok>}"
+
+  # 3. Available background tasks (ids vary by version) — log them so we can
+  #    trigger the right sync / search-wanted tasks.
+  log "Bazarr tasks available:"
+  curl -s "${base}/api/system/tasks" -H "${hdr}" 2>&1 | jq -r '.data[]?.job_id // .data[]?.name // empty' 2>/dev/null | sed 's/^/[init]   task: /' >&2 || true
+
+  mark_done "bazarr"
+  log "Bazarr initialisation complete"
+}
+
 # --- Quality profiles (codec/streaming policy) --------------------------------
 # Creates named, Seerr-selectable quality profiles that bake in a set of
 # "blocked" custom formats (scored -10000 with minFormatScore=0, so matching
@@ -437,6 +524,7 @@ main() {
   setup_prowlarr
   apply_quality_profiles "radarr" "http://127.0.0.1:${RADARR_PORT}" "${RADARR_API_KEY}" "${INIT_DIR}/radarr.json"
   apply_quality_profiles "sonarr" "http://127.0.0.1:${SONARR_PORT}" "${SONARR_API_KEY}" "${INIT_DIR}/sonarr.json"
+  setup_bazarr
   setup_seerr
 
   log "All services initialised"
