@@ -2,7 +2,7 @@
 
 This project deploys a self-hosted media server on a VPS using Ansible for bootstrap and Docker Compose for the stack.
 
-**Stack:** Traefik, Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, qBittorrent
+**Stack:** Traefik, Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent
 
 > **WARNING** I do not condone the use of this technology for downloading illegal or copyrighted content. This is purely for fun and not for doing anything illegal.
 
@@ -18,9 +18,10 @@ Internal (media-network):
   Prowlarr → Radarr, Sonarr
   Radarr/Sonarr → qBittorrent → /content/torrents
   Radarr/Sonarr/Jellyfin → /content/media
+  Bazarr → Radarr, Sonarr → subtitles into /content/media
 ```
 
-Ansible handles VPS bootstrap (Docker, firewall, directories, config templating). Docker Compose runs all services from a single [`compose.yaml.j2`](compose.yaml.j2). A one-shot [`scripts/init-services.sh`](scripts/init-services.sh) configures Jellyfin libraries, *arr apps, and Seerr via their APIs.
+Ansible handles VPS bootstrap (Docker, firewall, directories, config templating). Docker Compose runs all services from a single [`compose.yaml.j2`](compose.yaml.j2). A one-shot [`scripts/init-services.sh`](scripts/init-services.sh) configures Jellyfin libraries, *arr apps, Bazarr, and Seerr via their APIs.
 
 ## Prerequisites
 
@@ -111,6 +112,27 @@ ssh -L 9696:127.0.0.1:9696 <user>@<ip_address>
 ```
 
 Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few public indexers.
+
+## Subtitles
+
+Bazarr downloads **English** subtitles automatically for everything Radarr and
+Sonarr track. The init step boots Bazarr, reads back the API key it generates on
+first run, then configures the Radarr/Sonarr connections, subtitle providers, and
+an English language profile set as the **default** for all series and movies — so
+new downloads and the existing library are both covered, with no manual setup.
+
+Providers default to **Podnapisi** and **Gestdown** (both anonymous, no account).
+Everything is defined in [`config/init/bazarr.json.j2`](config/init/bazarr.json.j2):
+add provider ids to `enabledProviders`, or add languages to `languagesEnabled` and
+the profile `items` to fetch more than English. Bazarr's admin UI is localhost-only:
+
+```zsh
+ssh -L 6767:127.0.0.1:6767 <user>@<ip_address>   # then open http://localhost:6767
+```
+
+> Bazarr only sees media that Radarr/Sonarr already track. Files sitting in
+> `/content/media` that were never added to the *arr apps won't get subtitles until
+> they are imported.
 
 ## Customisation
 

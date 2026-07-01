@@ -291,10 +291,16 @@ setup_bazarr() {
     2>&1 || true)"
   log "Profile result: ${prof_result:-<empty=ok>}"
 
-  # 3. Available background tasks (ids vary by version) — log them so we can
-  #    trigger the right sync / search-wanted tasks.
-  log "Bazarr tasks available:"
-  curl -s "${base}/api/system/tasks" -H "${hdr}" 2>&1 | jq -r '.data[]?.job_id // .data[]?.name // empty' 2>/dev/null | sed 's/^/[init]   task: /' >&2 || true
+  # 3. Kick an immediate library sync + missing-subtitle search so subtitles
+  #    start downloading on first deploy instead of waiting for the scheduled
+  #    tasks (task ids from GET /api/system/tasks).
+  log "Triggering Bazarr sync + subtitle search"
+  local task
+  for task in update_series update_movies \
+              wanted_search_missing_subtitles_series wanted_search_missing_subtitles_movies; do
+    curl -s -X POST "${base}/api/system/tasks" -H "${hdr}" \
+      --data-urlencode "taskid=${task}" >/dev/null 2>&1 || true
+  done
 
   mark_done "bazarr"
   log "Bazarr initialisation complete"
