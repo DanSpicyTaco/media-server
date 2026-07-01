@@ -156,6 +156,7 @@
         - media-management/prowlarr
         - media-management/radarr
         - media-management/sonarr
+        - media-management/bazarr/config
       tags:
         - setup
         - directories
@@ -221,6 +222,7 @@
         - { src: config/init/sonarr.json.j2, dest: config/init/sonarr.json }
         - { src: config/init/prowlarr.json.j2, dest: config/init/prowlarr.json }
         - { src: config/init/seerr.json.j2, dest: config/init/seerr.json }
+        - { src: config/init/bazarr.json.j2, dest: config/init/bazarr.json }
       tags:
         - setup
         - config
