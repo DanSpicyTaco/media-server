@@ -131,11 +131,31 @@
     - name: Setup UFW
       become: yes
       import_tasks: ./common/setup-ufw.tasks.yaml
+      when: enable_firewall | default(true) | bool
       tags:
         - setup
         - firewall
 
-    - name: Create necessary directories
+    - name: Create content directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      loop:
+        - "{{ content_dir }}"
+        - "{{ media_dir }}"
+        - "{{ torrents_dir }}"
+        - "{{ media_dir }}/movies"
+        - "{{ media_dir }}/tv"
+        - "{{ torrents_dir }}/movies"
+        - "{{ torrents_dir }}/tv"
+      tags:
+        - setup
+        - directories
+
+    - name: Create configuration directories
       file:
         path: "{{ root_dir }}/{{ item }}"
         state: directory
@@ -143,10 +163,6 @@
         owner: "{{ ansible_facts.user_uid }}"
         group: "{{ ansible_facts.user_gid }}"
       loop:
-        - content/media/movies
-        - content/media/tv
-        - content/torrents/movies
-        - content/torrents/tv
         - config/traefik/letsencrypt
         - config/init
         - scripts
