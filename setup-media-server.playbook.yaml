@@ -246,7 +246,10 @@
       community.docker.docker_compose_v2:
         project_src: "{{ root_dir }}"
         state: present
+        pull: always
         recreate: auto
+        wait: true
+        wait_timeout: 300
       tags:
         - compose
         - jellyfin
