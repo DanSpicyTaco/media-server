@@ -85,8 +85,8 @@ ansible-playbook -i inventory.ini setup-media-server.playbook.yaml
 # Bootstrap only (Docker, firewall, directories, config)
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags setup
 
-# Start/restart containers
-ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags compose
+# Re-template config and start/restart containers
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose
 
 # Re-run API initialisation (idempotent)
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
@@ -94,12 +94,21 @@ ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
 
 ### Updates
 
-On the server, after the initial deploy:
+Image versions are pinned in [`vars.yml`](vars.yml). Bump them deliberately,
+then re-template the generated compose file and recreate the stack:
 
 ```zsh
-cd ~/{{ server_name }}
-docker compose pull
-docker compose up -d
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --syntax-check
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --check --diff --tags config
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose
+```
+
+After deployment, verify the running stack on the server:
+
+```zsh
+cd ~/<server_name>
+docker compose ps
+docker compose logs --since=10m --tail=100
 ```
 
 ## Prowlarr
