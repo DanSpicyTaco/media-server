@@ -173,11 +173,86 @@
         - directories
         - seerr
 
+    - name: Read existing generated API keys from .env
+      command:
+        cmd: >-
+          python3 -c "from pathlib import Path;
+          env=Path('.env');
+          keys=dict(line.split('=',1) for line in env.read_text().splitlines() if '=' in line) if env.exists() else {};
+          print(keys.get('JELLYFIN_API_KEY',''));
+          print(keys.get('BAZARR_API_KEY',''))"
+        chdir: "{{ root_dir }}"
+      register: existing_env_keys
+      changed_when: false
+      check_mode: no
+      no_log: true
+      tags:
+        - setup
+        - config
+
+    - name: Preserve generated API keys for .env template
+      set_fact:
+        jellyfin_api_key: "{{ existing_env_keys.stdout_lines[0] | default('') }}"
+        bazarr_api_key: "{{ existing_env_keys.stdout_lines[1] | default('') }}"
+      no_log: true
+      tags:
+        - setup
+        - config
+
     # qBittorrent stores its WebUI password as PBKDF2-HMAC-SHA512
-    # (100k iterations, 16-byte salt). Computed with the Python stdlib on the
-    # target host: works on any architecture and never exposes the password
-    # in process arguments.
-    - name: Generate qBittorrent PBKDF2 password hash
+    # (100k iterations, 16-byte salt). Persist the generated hash locally so
+    # re-running config does not rewrite qBittorrent.conf for the same password.
+    - name: Check local persisted qBittorrent PBKDF2 password hash
+      delegate_to: localhost
+      stat:
+        path: "{{ inventory_dir }}/.credentials/qbittorrent_password_pbkdf2"
+      register: qbittorrent_hash_file
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Load persisted qBittorrent PBKDF2 password hash
+      set_fact:
+        qbittorrent_password_pbkdf2: "{{ lookup('ansible.builtin.file', inventory_dir ~ '/.credentials/qbittorrent_password_pbkdf2') if qbittorrent_hash_file.stat.exists else '' }}"
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Read existing qBittorrent PBKDF2 password hash from server
+      command:
+        cmd: >-
+          python3 -c "from pathlib import Path;
+          path=Path('torrent/config/qBittorrent/qBittorrent.conf');
+          lines=path.read_text().splitlines() if path.exists() else [];
+          next((print(line.split('=',1)[1].strip().strip(chr(34))) for line in lines if line.startswith('WebUI\\Password_PBKDF2=')), None)"
+        chdir: "{{ root_dir }}"
+      register: existing_qbittorrent_hash
+      changed_when: false
+      check_mode: no
+      when: qbittorrent_password_pbkdf2 == ''
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Reuse existing server qBittorrent password hash
+      set_fact:
+        qbittorrent_password_pbkdf2: "{{ existing_qbittorrent_hash.stdout_lines[0] }}"
+      when:
+        - existing_qbittorrent_hash is not skipped
+        - existing_qbittorrent_hash.stdout_lines | length > 0
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Generate qBittorrent PBKDF2 password hash when missing
       command:
         cmd: >-
           python3 -c "import base64,hashlib,os,sys;
@@ -187,16 +262,44 @@
           print('@ByteArray(%s:%s)' % (base64.b64encode(salt).decode(), base64.b64encode(dk).decode()))"
         stdin: "{{ qbittorrent_password }}"
       register: password_output
-      changed_when: false
+      when: qbittorrent_password_pbkdf2 == ''
+      check_mode: no
       no_log: true
       tags:
         - setup
         - config
         - torrent
 
-    - name: Store the generated password hash
+    - name: Store generated qBittorrent password hash in memory
       set_fact:
         qbittorrent_password_pbkdf2: "{{ password_output.stdout }}"
+      when: password_output is not skipped
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Ensure local credentials directory exists
+      delegate_to: localhost
+      file:
+        path: "{{ inventory_dir }}/.credentials"
+        state: directory
+        mode: "0700"
+      when: not qbittorrent_hash_file.stat.exists and qbittorrent_password_pbkdf2 != ''
+      no_log: true
+      tags:
+        - setup
+        - config
+        - torrent
+
+    - name: Persist qBittorrent password hash locally
+      delegate_to: localhost
+      copy:
+        content: "{{ qbittorrent_password_pbkdf2 }}\n"
+        dest: "{{ inventory_dir }}/.credentials/qbittorrent_password_pbkdf2"
+        mode: "0600"
+      when: not qbittorrent_hash_file.stat.exists and qbittorrent_password_pbkdf2 != ''
       no_log: true
       tags:
         - setup
@@ -212,7 +315,6 @@
         group: "{{ ansible_facts.user_gid }}"
       loop:
         - { src: compose.yaml.j2, dest: compose.yaml }
-        - { src: .env.j2, dest: .env, mode: "0600" }
         - { src: config/traefik.yml.j2, dest: config/traefik/traefik.yml }
         - { src: config/qbittorrent/qBittorrent.conf.j2, dest: torrent/config/qBittorrent/qBittorrent.conf }
         - { src: config/radarr.config.xml.j2, dest: media-management/radarr/config.xml }
@@ -223,6 +325,19 @@
         - { src: config/init/prowlarr.json.j2, dest: config/init/prowlarr.json }
         - { src: config/init/seerr.json.j2, dest: config/init/seerr.json }
         - { src: config/init/bazarr.json.j2, dest: config/init/bazarr.json }
+      tags:
+        - setup
+        - config
+
+    - name: Template environment file
+      template:
+        src: .env.j2
+        dest: "{{ root_dir }}/.env"
+        mode: "0600"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      diff: false
+      no_log: true
       tags:
         - setup
         - config
@@ -267,3 +382,21 @@
         - seerr
         - media-management
         - frontend
+
+    - name: Verify service health endpoints
+      uri:
+        url: "{{ item.url }}"
+        status_code: 200
+        return_content: false
+      loop:
+        - { name: qbittorrent, url: "http://127.0.0.1:{{ qbittorrent_port }}/" }
+        - { name: prowlarr, url: "http://127.0.0.1:{{ prowlarr_port }}/ping" }
+        - { name: radarr, url: "http://127.0.0.1:{{ radarr_port }}/ping" }
+        - { name: sonarr, url: "http://127.0.0.1:{{ sonarr_port }}/ping" }
+        - { name: bazarr, url: "http://127.0.0.1:{{ bazarr_port }}/" }
+        - { name: jellyfin, url: "http://127.0.0.1:{{ jellyfin_port }}/health" }
+        - { name: seerr, url: "http://127.0.0.1:{{ seerr_port }}/api/v1/status" }
+      loop_control:
+        label: "{{ item.name }}"
+      tags:
+        - verify

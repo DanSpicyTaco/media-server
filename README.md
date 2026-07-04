@@ -89,28 +89,53 @@ ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags setup
 # Re-template config and start/restart containers
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose
 
+# Verify service health endpoints
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags verify
+
 # Re-run API initialisation (idempotent)
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
 ```
 
 ### Updates
 
-Image versions are pinned in [`vars.yml`](vars.yml). Bump them deliberately,
-then re-template the generated compose file and recreate the stack:
+Image versions are pinned in [`vars.yml`](vars.yml). Check available semver tags:
+
+```zsh
+scripts/check-image-updates.py
+```
+
+Bump versions deliberately, then re-template the generated compose file,
+recreate the stack, and verify the health endpoints:
 
 ```zsh
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --syntax-check
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --check --diff --tags config
-ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose,verify
 ```
 
-After deployment, verify the running stack on the server:
+After deployment, inspect the running stack on the server:
 
 ```zsh
 cd ~/<server_name>
 docker compose ps
 docker compose logs --since=10m --tail=100
 ```
+
+### Rollback
+
+If an image bump breaks a service, revert the version pin in [`vars.yml`](vars.yml)
+and redeploy the generated compose file:
+
+```zsh
+git revert <update-commit>
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose,verify
+```
+
+If a container starts but the app data looks wrong after a migration, stop before
+making more changes and restore that app's config directory from your VPS backup.
+The directories to restore are under `~/<server_name>/jellyfin`,
+`~/<server_name>/seerr`, `~/<server_name>/torrent/config`, and
+`~/<server_name>/media-management`.
 
 ## Prowlarr
 
