@@ -3,13 +3,30 @@ internal_network: "media-network"
 public_network: "reverse-proxy"
 
 root_dir: "/home/{{ ansible_user }}/{{ server_name }}"
-media_dir: "{{ root_dir }}/content/media"
-torrents_dir: "{{ root_dir }}/content/torrents"
+content_dir: "{{ root_dir }}/content"
+media_dir: "{{ content_dir }}/media"
+torrents_dir: "{{ content_dir }}/torrents"
 config_dir: "{{ root_dir }}/config"
 jellyfin_dir: "{{ root_dir }}/jellyfin"
 seerr_dir: "{{ root_dir }}/seerr"
 qbittorrent_dir: "{{ root_dir }}/torrent"
 management_dir: "{{ root_dir }}/media-management"
+
+# Network Binding (Defaults to localhost for VPS security behind Traefik. Override to 0.0.0.0 for LAN access)
+bind_host: "127.0.0.1"
+
+# Firewall
+enable_firewall: true
+
+# VPN Settings (Routing qBittorrent through Gluetun sidecar)
+vpn_enabled: false
+vpn_provider: "custom"
+vpn_type: "wireguard"
+# Add provider specific variables to inventory.ini if vpn_enabled is true
+# vpn_username: "XXXX"
+# vpn_password: "XXXX"
+# vpn_wireguard_private_key: "XXXX"
+# vpn_wireguard_addresses: "10.0.0.2/32"
 
 # Public Facing Ports (localhost-bound admin UIs)
 qbittorrent_port: 8080
@@ -52,3 +69,4 @@ prowlarr_version: "2.4.0"
 # NOTE: confirm the current linuxserver/bazarr tag before deploying (hub.docker.com/r/linuxserver/bazarr/tags).
 bazarr_version: "1.5.6"
 seerr_version: "v3.3.0"
+gluetun_version: "v3.41.1"

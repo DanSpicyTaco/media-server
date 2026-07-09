@@ -19,6 +19,46 @@ services:
       retries: 3
       start_period: 10s
 
+{% if vpn_enabled | default(false) | bool %}
+  gluetun:
+    image: qmcgaw/gluetun:{{ gluetun_version }}
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "${BIND_HOST}:${QBITTORRENT_PORT}:8080"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE}
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      - WIREGUARD_ENDPOINT_IP=${WIREGUARD_ENDPOINT_IP}
+      - WIREGUARD_ENDPOINT_PORT=${WIREGUARD_ENDPOINT_PORT}
+      - WIREGUARD_PUBLIC_KEY=${WIREGUARD_PUBLIC_KEY}
+      - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
+      - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
+      - TZ=${TZ}
+    volumes:
+      - ./gluetun:/gluetun
+    networks:
+      {{ internal_network }}:
+        aliases:
+          - qbittorrent
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ping -c 1 1.1.1.1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+{% endif %}
+
   qbittorrent:
     image: linuxserver/qbittorrent:{{ qbittorrent_version }}
     container_name: qbittorrent
@@ -30,13 +70,20 @@ services:
       - WEBUI_PORT=8080
     volumes:
       - ./torrent/config:/config
-      - ./content/torrents:/data/torrents
+      - ${CONTENT_DIR}/torrents:/data/torrents
+{% if vpn_enabled | default(false) | bool %}
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+{% else %}
     ports:
       - "6881:6881/tcp"
       - "6881:6881/udp"
-      - "127.0.0.1:${QBITTORRENT_PORT}:8080"
+      - "${BIND_HOST}:${QBITTORRENT_PORT}:8080"
     networks:
       - {{ internal_network }}
+{% endif %}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
@@ -54,7 +101,7 @@ services:
     volumes:
       - ./media-management/prowlarr:/config
     ports:
-      - "127.0.0.1:${PROWLARR_PORT}:9696"
+      - "${BIND_HOST}:${PROWLARR_PORT}:9696"
     restart: unless-stopped
     networks:
       - {{ internal_network }}
@@ -77,9 +124,9 @@ services:
       - TZ=${TZ}
     volumes:
       - ./media-management/radarr:/config
-      - ./content:/data
+      - ${CONTENT_DIR}:/data
     ports:
-      - "127.0.0.1:${RADARR_PORT}:7878"
+      - "${BIND_HOST}:${RADARR_PORT}:7878"
     restart: unless-stopped
     networks:
       - {{ internal_network }}
@@ -102,9 +149,9 @@ services:
       - TZ=${TZ}
     volumes:
       - ./media-management/sonarr:/config
-      - ./content:/data
+      - ${CONTENT_DIR}:/data
     ports:
-      - "127.0.0.1:${SONARR_PORT}:8989"
+      - "${BIND_HOST}:${SONARR_PORT}:8989"
     restart: unless-stopped
     networks:
       - {{ internal_network }}
@@ -127,9 +174,9 @@ services:
       - TZ=${TZ}
     volumes:
       - ./media-management/bazarr:/config
-      - ./content:/data
+      - ${CONTENT_DIR}:/data
     ports:
-      - "127.0.0.1:${BAZARR_PORT}:6767"
+      - "${BIND_HOST}:${BAZARR_PORT}:6767"
     restart: unless-stopped
     networks:
       - {{ internal_network }}
@@ -155,9 +202,9 @@ services:
       - JELLYFIN_PublishedServerUrl=https://jellyfin.${SERVER_DOMAIN}
     volumes:
       - ./jellyfin:/config
-      - ./content/media:/data/media
+      - ${CONTENT_DIR}/media:/data/media
     ports:
-      - "127.0.0.1:${JELLYFIN_PORT}:8096"
+      - "${BIND_HOST}:${JELLYFIN_PORT}:8096"
     restart: unless-stopped
     networks:
       - {{ internal_network }}
@@ -187,7 +234,7 @@ services:
     volumes:
       - ./seerr:/app/config
     ports:
-      - "127.0.0.1:${SEERR_PORT}:5055"
+      - "${BIND_HOST}:${SEERR_PORT}:5055"
     restart: unless-stopped
     networks:
       - {{ internal_network }}

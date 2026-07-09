@@ -20,6 +20,46 @@
       tags:
         - always
 
+    # init-services.sh always curls 127.0.0.1 to reach the freshly-published
+    # container ports, since it runs on the target host itself. That only
+    # resolves correctly when bind_host is 127.0.0.1 or 0.0.0.0 — Docker's
+    # port publishing only NATs traffic addressed to the bound IP, so a
+    # specific LAN IP here would make init fail to reach its own services.
+    - name: Validate bind_host is one of the supported values
+      assert:
+        that:
+          - bind_host in ['127.0.0.1', '0.0.0.0']
+        fail_msg: >-
+          bind_host must be either 127.0.0.1 (localhost-only) or 0.0.0.0
+          (all interfaces, for LAN access) — service initialisation connects
+          to the published ports via 127.0.0.1 and will fail to reach them
+          if bound to a single specific LAN IP.
+      tags:
+        - always
+
+    # Named providers (e.g. nordvpn) auto-resolve their WireGuard endpoint
+    # from vpn_wireguard_private_key alone, but vpn_provider=custom has no
+    # provider integration to infer these from — Gluetun needs them explicit.
+    - name: Validate custom WireGuard VPN configuration is complete
+      assert:
+        that:
+          - vpn_wireguard_private_key | default('') != ''
+          - vpn_wireguard_addresses | default('') != ''
+          - vpn_wireguard_endpoint_ip | default('') != ''
+          - vpn_wireguard_endpoint_port | default('') != ''
+          - vpn_wireguard_public_key | default('') != ''
+        fail_msg: >-
+          vpn_provider=custom with vpn_type=wireguard requires
+          vpn_wireguard_private_key, vpn_wireguard_addresses,
+          vpn_wireguard_endpoint_ip, vpn_wireguard_endpoint_port, and
+          vpn_wireguard_public_key to all be set — see inventory.example.ini.
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_provider | default('custom') == 'custom'
+        - vpn_type | default('wireguard') == 'wireguard'
+      tags:
+        - always
+
     - name: Auto-generate *arr API keys when not provided
       set_fact:
         "{{ item }}": "{{ lookup('ansible.builtin.password', inventory_dir ~ '/.credentials/' ~ item ~ ' chars=hexdigits length=32') | lower }}"
@@ -131,11 +171,31 @@
     - name: Setup UFW
       become: yes
       import_tasks: ./common/setup-ufw.tasks.yaml
+      when: enable_firewall | default(true) | bool
       tags:
         - setup
         - firewall
 
-    - name: Create necessary directories
+    - name: Create content directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      loop:
+        - "{{ content_dir }}"
+        - "{{ media_dir }}"
+        - "{{ torrents_dir }}"
+        - "{{ media_dir }}/movies"
+        - "{{ media_dir }}/tv"
+        - "{{ torrents_dir }}/movies"
+        - "{{ torrents_dir }}/tv"
+      tags:
+        - setup
+        - directories
+
+    - name: Create configuration directories
       file:
         path: "{{ root_dir }}/{{ item }}"
         state: directory
@@ -143,10 +203,6 @@
         owner: "{{ ansible_facts.user_uid }}"
         group: "{{ ansible_facts.user_gid }}"
       loop:
-        - content/media/movies
-        - content/media/tv
-        - content/torrents/movies
-        - content/torrents/tv
         - config/traefik/letsencrypt
         - config/init
         - scripts
@@ -371,7 +427,8 @@
         - seerr
 
     - name: Run one-shot service initialisation
-      command: sg docker "{{ root_dir }}/scripts/init-services.sh"
+      become: yes
+      command: "{{ root_dir }}/scripts/init-services.sh"
       args:
         chdir: "{{ root_dir }}"
       register: init_result
@@ -382,6 +439,17 @@
         - seerr
         - media-management
         - frontend
+
+    - name: Ensure correct ownership of configuration and state files
+      become: yes
+      file:
+        path: "{{ root_dir }}"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+        recurse: yes
+      tags:
+        - init
+        - setup
 
     - name: Verify service health endpoints
       uri:

@@ -137,6 +137,43 @@ The directories to restore are under `~/<server_name>/jellyfin`,
 `~/<server_name>/seerr`, `~/<server_name>/torrent/config`, and
 `~/<server_name>/media-management`.
 
+## Local / LAN Deployment
+
+The stack can also run on a local PC/LAN instead of a VPS, e.g. on a home
+server. In `[media:vars]`:
+
+```ini
+[media]
+localhost ansible_connection=local
+
+[media:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=<your_local_user>
+server_domain=media.local
+timezone=<your_timezone>
+
+# Bind admin UIs to the LAN instead of localhost-only
+bind_host=0.0.0.0
+
+# Store media on external/secondary storage, keep app configs on the fast disk
+content_dir=/mnt/external-drive/content
+
+# Skip UFW if you manage the local firewall yourself (or don't want one)
+enable_firewall=false
+```
+
+`bind_host` must be either `127.0.0.1` (localhost-only, the default — used
+behind Traefik on a VPS) or `0.0.0.0` (all interfaces, for LAN access).
+Anything else fails validation, since service initialisation always connects
+to the freshly-started containers via `127.0.0.1` — Docker's port publishing
+only forwards traffic addressed to the bound IP, so a specific LAN IP here
+would make init unable to reach its own services.
+
+Route qBittorrent's traffic through a VPN with `vpn_enabled=true` — see the
+VPN section in [`inventory.example.ini`](inventory.example.ini) for the full
+set of options for both named providers (NordVPN, Mullvad, etc.) and a
+manually-configured WireGuard peer.
+
 ## Prowlarr
 
 Prowlarr is not pre-configured with indexers. After deploy, set up SSH port forwarding to Prowlarr and add indexers manually:

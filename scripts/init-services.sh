@@ -8,9 +8,15 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INIT_DIR="${ROOT_DIR}/config/init"
 STATE_FILE="${ROOT_DIR}/config/.init-state"
 
+# Parsed as plain KEY=VALUE data rather than sourced as a script — VPN
+# secrets and other values can contain shell-special characters ($, `, ",
+# etc.), and `source`-ing the file would let them be interpreted as bash
+# syntax instead of literal text.
 if [[ -f "${ROOT_DIR}/.env" ]]; then
-  # shellcheck disable=SC1091
-  set -a && source "${ROOT_DIR}/.env" && set +a
+  while IFS='=' read -r key value; do
+    [[ -z "${key}" || "${key}" == \#* ]] && continue
+    export "${key}=${value}"
+  done < "${ROOT_DIR}/.env"
 fi
 
 log() { echo "[init] $*" >&2; }
