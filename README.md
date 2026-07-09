@@ -2,7 +2,7 @@
 
 This project deploys a self-hosted media server on a VPS using Ansible for bootstrap and Docker Compose for the stack.
 
-**Stack:** Traefik, Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent
+**Stack:** Traefik, Jellyfin, Seerr, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent, FlareSolverr
 
 > **WARNING** I do not condone the use of this technology for downloading illegal or copyrighted content. This is purely for fun and not for doing anything illegal.
 
@@ -195,6 +195,21 @@ ssh -L 9696:127.0.0.1:9696 <user>@<ip_address>
 ```
 
 Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few public indexers.
+
+### Cloudflare-protected indexers (FlareSolverr)
+
+Some indexers sit behind a Cloudflare bot challenge that a plain HTTP request
+can't get past. A [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+container is deployed alongside the stack, internal-only (no published port —
+Prowlarr reaches it over the Docker network), and registered in Prowlarr as
+an Indexer Proxy automatically — no manual setup required to make it
+available.
+
+It isn't applied to every indexer by default, since it's slower per-request
+than a direct connection. To use it for an indexer that needs it: edit that
+indexer in Prowlarr, add the `flaresolverr` tag (also created automatically)
+in its **Tags** field, and save — tagged indexers route their requests
+through FlareSolverr, everything else stays direct.
 
 ## Subtitles
 

@@ -136,6 +136,24 @@ services:
       retries: 5
       start_period: 60s
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:{{ flaresolverr_version }}@sha256:{{ flaresolverr_digest }}
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=${TZ}
+    restart: unless-stopped
+    networks:
+      - {{ internal_network }}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8191/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   prowlarr:
     image: linuxserver/prowlarr:{{ prowlarr_version }}@sha256:{{ prowlarr_digest }}
     container_name: prowlarr
@@ -152,6 +170,8 @@ services:
       - {{ internal_network }}
     depends_on:
       qbittorrent:
+        condition: service_healthy
+      flaresolverr:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:9696/ping || exit 1"]
