@@ -254,6 +254,24 @@ setup_prowlarr() {
     -H "X-Api-Key: ${PROWLARR_API_KEY}" \
     -d "$(jq -c '.sonarrApplicationConfig' "${config}")" >/dev/null || true
 
+  # Create (or reuse) a "flaresolverr" tag and attach it to the proxy config,
+  # so enabling FlareSolverr on an indexer later is just adding that same tag
+  # to it — Prowlarr routes tagged indexers through proxies with a matching tag.
+  local flaresolverr_tag_id
+  flaresolverr_tag_id="$(curl -sf "${base}/api/v1/tag" -H "X-Api-Key: ${PROWLARR_API_KEY}" \
+    | jq -r '.[] | select(.label == "flaresolverr") | .id' | head -1)"
+  if [[ -z "${flaresolverr_tag_id}" ]]; then
+    flaresolverr_tag_id="$(curl -sf -X POST "${base}/api/v1/tag" \
+      -H "Content-Type: application/json" \
+      -H "X-Api-Key: ${PROWLARR_API_KEY}" \
+      -d '{"label":"flaresolverr"}' | jq -r '.id')"
+  fi
+
+  curl -sf -X POST "${base}/api/v1/indexerproxy" \
+    -H "Content-Type: application/json" \
+    -H "X-Api-Key: ${PROWLARR_API_KEY}" \
+    -d "$(jq -c --argjson tid "${flaresolverr_tag_id}" '.flaresolverrProxyConfig | .tags = [$tid]' "${config}")" >/dev/null || true
+
   mark_done "prowlarr"
 }
 
