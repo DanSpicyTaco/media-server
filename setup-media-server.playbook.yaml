@@ -2,10 +2,13 @@
 - name: Setup Media Server
   hosts: media
   gather_facts: yes
-  vars_files:
-    - vars.yml
-
   pre_tasks:
+    - name: Load media server defaults
+      set_fact:
+        media_defaults: "{{ lookup('file', playbook_dir ~ '/vars.yml') | from_yaml }}"
+      tags:
+        - always
+
     - name: Validate required configuration
       assert:
         that:
@@ -17,6 +20,45 @@
         fail_msg: >-
           Missing required variables. Copy inventory.example.ini to
           inventory.ini and fill in the [media:vars] section.
+      tags:
+        - always
+
+    - name: Apply media server defaults unless already overridden
+      set_fact:
+        "{{ item.key }}": "{{ lookup('vars', item.key, default=item.value) }}"
+      loop: "{{ media_defaults | dict2items }}"
+      tags:
+        - always
+
+    - name: Render root directory default
+      set_fact:
+        root_dir: "{{ root_dir | replace('{{ ansible_user }}', ansible_user) | replace('{{ server_name }}', server_name) }}"
+      tags:
+        - always
+
+    - name: Render content directory default
+      set_fact:
+        content_dir: "{{ content_dir | replace('{{ root_dir }}', root_dir) }}"
+      tags:
+        - always
+
+    - name: Render derived directory defaults
+      set_fact:
+        media_dir: "{{ media_dir | replace('{{ content_dir }}', content_dir) }}"
+        torrents_dir: "{{ torrents_dir | replace('{{ content_dir }}', content_dir) }}"
+        config_dir: "{{ config_dir | replace('{{ root_dir }}', root_dir) }}"
+        jellyfin_dir: "{{ jellyfin_dir | replace('{{ root_dir }}', root_dir) }}"
+        seerr_dir: "{{ seerr_dir | replace('{{ root_dir }}', root_dir) }}"
+        qbittorrent_dir: "{{ qbittorrent_dir | replace('{{ root_dir }}', root_dir) }}"
+        management_dir: "{{ management_dir | replace('{{ root_dir }}', root_dir) }}"
+      tags:
+        - always
+
+    - name: Render user-facing defaults
+      set_fact:
+        jellyfin_server_name: "{{ jellyfin_server_name | replace('{{ server_name }}', server_name) }}"
+        qbittorrent_username: "{{ qbittorrent_username | replace('{{ ansible_user }}', ansible_user) }}"
+        qbittorrent_peer_bind_host: "{{ qbittorrent_peer_bind_host | replace('{{ bind_host }}', bind_host) }}"
       tags:
         - always
 
@@ -34,6 +76,100 @@
           (all interfaces, for LAN access) — service initialisation connects
           to the published ports via 127.0.0.1 and will fail to reach them
           if bound to a single specific LAN IP.
+      tags:
+        - always
+
+    - name: Validate LAN exposure is explicit
+      assert:
+        that:
+          - >-
+            bind_host != '0.0.0.0' or
+            trusted_lan_cidrs | length > 0 or
+            allow_lan_admin_exposure | bool
+          - >-
+            bind_host != '0.0.0.0' or
+            admin_ingress_interfaces | length > 0 or
+            allow_lan_admin_exposure | bool
+        fail_msg: >-
+          bind_host=0.0.0.0 exposes admin UIs through Docker-published ports.
+          Set trusted_lan_cidrs and admin_ingress_interfaces, or set
+          allow_lan_admin_exposure=true to accept unrestricted LAN exposure.
+      tags:
+        - always
+
+    - name: Validate content_dir is a dedicated absolute path
+      assert:
+        that:
+          - content_dir is match('^/')
+          - >-
+            content_dir | regex_replace('/+$', '') not in
+            ['/', '/bin', '/boot', '/dev', '/etc', '/home', '/opt',
+            '/root', '/sbin', '/tmp', '/usr', '/var']
+        fail_msg: >-
+          content_dir must be an absolute, dedicated media directory. Do not
+          point it at broad system paths such as /, /home, /etc, /usr, or /var.
+      tags:
+        - always
+
+    - name: Resolve content and root paths
+      command:
+        cmd: >-
+          python3 -c "import os,sys; [print(os.path.realpath(p)) for p in sys.argv[1:]]"
+          "{{ content_dir }}" "{{ root_dir }}"
+      register: resolved_paths
+      changed_when: false
+      check_mode: no
+      tags:
+        - always
+
+    - name: Store resolved content and root paths
+      set_fact:
+        resolved_content_dir: "{{ resolved_paths.stdout_lines[0] }}"
+        resolved_root_dir: "{{ resolved_paths.stdout_lines[1] }}"
+      tags:
+        - always
+
+    - name: Validate resolved content_dir is safe
+      assert:
+        that:
+          - resolved_content_dir not in ['/', '/etc', '/usr', '/var', '/root']
+          - not resolved_content_dir.startswith('/etc/')
+          - not resolved_content_dir.startswith('/usr/')
+          - not resolved_content_dir.startswith('/var/')
+          - not resolved_content_dir.startswith('/root/')
+          - resolved_content_dir != resolved_root_dir
+          - not resolved_root_dir.startswith(resolved_content_dir + '/')
+          - media_dir is search('^' ~ content_dir)
+          - torrents_dir is search('^' ~ content_dir)
+        fail_msg: >-
+          content_dir must resolve to a dedicated content directory, not a
+          broad system path, deployment root, or ancestor of the deployment
+          root.
+      tags:
+        - always
+
+    - name: Validate OpenVPN credentials are complete
+      assert:
+        that:
+          - vpn_username | default('') != ''
+          - vpn_password | default('') != ''
+        fail_msg: >-
+          vpn_type=openvpn requires vpn_username and vpn_password.
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_type | default('wireguard') == 'openvpn'
+      tags:
+        - always
+
+    - name: Validate WireGuard private key is set when needed
+      assert:
+        that:
+          - vpn_wireguard_private_key | default('') != ''
+        fail_msg: >-
+          vpn_type=wireguard requires vpn_wireguard_private_key.
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_type | default('wireguard') == 'wireguard'
       tags:
         - always
 
@@ -176,6 +312,18 @@
         - setup
         - firewall
 
+    - name: Setup Docker-published admin UI firewall rules
+      become: yes
+      import_tasks: ./common/setup-docker-user-firewall.tasks.yaml
+      when:
+        - enable_firewall | default(true) | bool
+        - bind_host == '0.0.0.0'
+        - trusted_lan_cidrs | length > 0
+        - admin_ingress_interfaces | length > 0
+      tags:
+        - setup
+        - firewall
+
     - name: Create content directories
       file:
         path: "{{ item }}"
@@ -217,6 +365,40 @@
         - setup
         - directories
 
+    - name: Create VPN secrets directory
+      file:
+        path: "{{ root_dir }}/secrets"
+        state: directory
+        mode: "0700"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      when: vpn_enabled | default(false) | bool
+      no_log: true
+      tags:
+        - setup
+        - directories
+        - config
+
+    - name: Write VPN secret files
+      copy:
+        content: "{{ item.value }}\n"
+        dest: "{{ root_dir }}/secrets/{{ item.name }}"
+        mode: "0600"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+      loop:
+        - { name: openvpn_user, value: "{{ vpn_username | default('') }}" }
+        - { name: openvpn_password, value: "{{ vpn_password | default('') }}" }
+        - { name: wireguard_private_key, value: "{{ vpn_wireguard_private_key | default('') }}" }
+        - { name: wireguard_preshared_key, value: "{{ vpn_wireguard_preshared_key | default('') }}" }
+      when:
+        - vpn_enabled | default(false) | bool
+        - item.value != ''
+      no_log: true
+      tags:
+        - setup
+        - config
+
     - name: Set Seerr config directory ownership for node user (UID 1000)
       file:
         path: "{{ seerr_dir }}"
@@ -233,8 +415,11 @@
       command:
         cmd: >-
           python3 -c "from pathlib import Path;
+          parse_value=lambda value: value[1:-1].replace(chr(92) + chr(39), chr(39)).replace(chr(92) + chr(92), chr(92)) if len(value) >= 2 and value[0] == value[-1] == chr(39) else value;
           env=Path('.env');
-          keys=dict(line.split('=',1) for line in env.read_text().splitlines() if '=' in line) if env.exists() else {};
+          keys={};
+          lines=env.read_text().splitlines() if env.exists() else [];
+          [keys.setdefault(line.split('=',1)[0], parse_value(line.split('=',1)[1])) for line in lines if '=' in line and not line.lstrip().startswith('#')];
           print(keys.get('JELLYFIN_API_KEY',''));
           print(keys.get('BAZARR_API_KEY',''))"
         chdir: "{{ root_dir }}"
@@ -417,7 +602,7 @@
       community.docker.docker_compose_v2:
         project_src: "{{ root_dir }}"
         state: present
-        pull: always
+        pull: "{{ compose_pull_policy }}"
         recreate: auto
         wait: true
         wait_timeout: 300
@@ -440,13 +625,15 @@
         - media-management
         - frontend
 
-    - name: Ensure correct ownership of configuration and state files
+    - name: Ensure init-updated files are owned by deployment user
       become: yes
       file:
-        path: "{{ root_dir }}"
+        path: "{{ root_dir }}/{{ item }}"
         owner: "{{ ansible_facts.user_uid }}"
         group: "{{ ansible_facts.user_gid }}"
-        recurse: yes
+      loop:
+        - .env
+        - config/.init-state
       tags:
         - init
         - setup
@@ -466,5 +653,26 @@
         - { name: seerr, url: "http://127.0.0.1:{{ seerr_port }}/api/v1/status" }
       loop_control:
         label: "{{ item.name }}"
+      tags:
+        - verify
+
+    - name: Verify VPN egress through Gluetun namespace
+      become: yes
+      command: >-
+        docker run --rm --network=container:gluetun alpine:3.22
+        sh -c "apk add --no-cache wget >/dev/null && wget -qO- https://ipinfo.io/ip >/dev/null"
+      register: vpn_egress_check
+      changed_when: false
+      no_log: true
+      when: vpn_enabled | default(false) | bool
+      tags:
+        - verify
+
+    - name: Report VPN egress verification
+      debug:
+        msg: VPN egress IP check succeeded
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_egress_check is succeeded
       tags:
         - verify

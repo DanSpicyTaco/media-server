@@ -12,12 +12,52 @@ STATE_FILE="${ROOT_DIR}/config/.init-state"
 # secrets and other values can contain shell-special characters ($, `, ",
 # etc.), and `source`-ing the file would let them be interpreted as bash
 # syntax instead of literal text.
-if [[ -f "${ROOT_DIR}/.env" ]]; then
-  while IFS='=' read -r key value; do
+load_env() {
+  local env_file="$1"
+  [[ -f "${env_file}" ]] || return 0
+
+  while IFS='=' read -r key value || [[ -n "${key}" ]]; do
     [[ -z "${key}" || "${key}" == \#* ]] && continue
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ "${value}" == \'*\' && "${value}" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+      value="${value//\\\'/\'}"
+      value="${value//\\\\/\\}"
+    fi
     export "${key}=${value}"
-  done < "${ROOT_DIR}/.env"
-fi
+  done < "${env_file}"
+}
+
+dotenv_quote() {
+  local value="$1"
+  value="${value//'/\'}"
+  printf "'%s'" "${value}"
+}
+
+set_env_key() {
+  local key="$1" value="$2"
+  python3 - "${ROOT_DIR}/.env" "${key}" "${value}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+quoted = "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+lines = path.read_text().splitlines() if path.exists() else []
+updated = False
+for idx, line in enumerate(lines):
+    if line.startswith(key + "="):
+        lines[idx] = f"{key}={quoted}"
+        updated = True
+        break
+if not updated:
+    lines.append(f"{key}={quoted}")
+path.write_text("\n".join(lines) + "\n")
+PY
+}
+
+load_env "${ROOT_DIR}/.env"
 
 log() { echo "[init] $*" >&2; }
 die() { echo "[init] ERROR: $*" >&2; exit 1; }
@@ -70,9 +110,11 @@ setup_jellyfin() {
   if [[ "${wizard_done}" != "true" ]]; then
     log "Running Jellyfin startup wizard"
     curl -sf "${base}/Startup/FirstUser" >/dev/null
+    local startup_user_payload
+    startup_user_payload="$(jq -cn --arg name "${JELLYFIN_USERNAME}" --arg password "${JELLYFIN_PASSWORD}" '{Name: $name, Password: $password}')"
     curl -sf -X POST "${base}/Startup/User" \
       -H "Content-Type: application/json" \
-      -d "{\"Name\":\"${JELLYFIN_USERNAME}\",\"Password\":\"${JELLYFIN_PASSWORD}\"}" >/dev/null
+      -d "${startup_user_payload}" >/dev/null
     curl -sf -X POST "${base}/Startup/Complete" \
       -H "Content-Type: application/json" \
       -d "{}" >/dev/null
@@ -81,11 +123,12 @@ setup_jellyfin() {
 
   local token=""
   local auth_response
+  local auth_payload
+  auth_payload="$(jq -cn --arg username "${JELLYFIN_USERNAME}" --arg password "${JELLYFIN_PASSWORD}" '{Username: $username, Pw: $password}')"
   auth_response="$(curl -sf -X POST "${base}/Users/AuthenticateByName" \
     -H "Content-Type: application/json" \
     -H "X-Emby-Authorization: MediaBrowser Client=\"init\", Device=\"init\", DeviceId=\"init-script\", Version=\"1.0.0\"" \
-    -d "{\"Username\":\"${JELLYFIN_USERNAME}\",\"Pw\":\"${JELLYFIN_PASSWORD}\"}" 2>/dev/null || true)"
-  log "Auth response: ${auth_response}"
+    -d "${auth_payload}" 2>/dev/null || true)"
   token="$(echo "${auth_response}" | jq -r '.AccessToken // empty' || true)"
 
   [[ -n "${token}" ]] || die "Failed to obtain Jellyfin access token"
@@ -117,14 +160,9 @@ setup_jellyfin() {
       -H "${auth_header}" >/dev/null
     local keys_response
     keys_response="$(curl -sf "${base}/Auth/Keys" -H "X-Emby-Token: ${token}" || true)"
-    log "Auth/Keys response: ${keys_response}"
     JELLYFIN_API_KEY="$(echo "${keys_response}" | jq -r '[.Items[] | select(.AppName == "Seerr")] | last.AccessToken // empty' || true)"
     [[ -n "${JELLYFIN_API_KEY}" ]] || die "Failed to generate Jellyfin API key"
-    if grep -q '^JELLYFIN_API_KEY=' "${ROOT_DIR}/.env"; then
-      sed -i "s|^JELLYFIN_API_KEY=.*|JELLYFIN_API_KEY=${JELLYFIN_API_KEY}|" "${ROOT_DIR}/.env"
-    else
-      echo "JELLYFIN_API_KEY=${JELLYFIN_API_KEY}" >> "${ROOT_DIR}/.env"
-    fi
+    set_env_key JELLYFIN_API_KEY "${JELLYFIN_API_KEY}"
   fi
 
   mark_done "jellyfin"
@@ -253,11 +291,7 @@ setup_bazarr() {
   log "Got Bazarr API key"
 
   # Persist to .env (mirrors JELLYFIN_API_KEY) for visibility / re-use.
-  if grep -q '^BAZARR_API_KEY=' "${ROOT_DIR}/.env"; then
-    sed -i "s|^BAZARR_API_KEY=.*|BAZARR_API_KEY=${bazarr_key}|" "${ROOT_DIR}/.env"
-  else
-    echo "BAZARR_API_KEY=${bazarr_key}" >> "${ROOT_DIR}/.env"
-  fi
+  set_env_key BAZARR_API_KEY "${bazarr_key}"
 
   local hdr="X-API-KEY: ${bazarr_key}"
 
@@ -281,7 +315,7 @@ setup_bazarr() {
     --data-urlencode "settings-radarr-ssl=$(jq -r '.radarr.ssl' "${config}")" \
     --data-urlencode "settings-radarr-apikey=${RADARR_API_KEY}" \
     2>&1 || true)"
-  log "Connections result: ${conn_result:-<empty=ok>}"
+  log "Connections configured"
 
   # 2. Enable English, create the English language profile, set it as the
   #    series + movie default. Profiles are one JSON-string field.
@@ -295,7 +329,7 @@ setup_bazarr() {
     --data-urlencode "settings-general-movie_default_enabled=true" \
     --data-urlencode "settings-general-movie_default_profile=$(jq -r '.languageProfile.profileId' "${config}")" \
     2>&1 || true)"
-  log "Profile result: ${prof_result:-<empty=ok>}"
+  log "Profile configured"
 
   # 3. Kick an immediate library sync + missing-subtitle search so subtitles
   #    start downloading on first deploy instead of waiting for the scheduled
@@ -418,11 +452,8 @@ setup_seerr() {
     return
   fi
 
-  # Reload .env in case Jellyfin step appended JELLYFIN_API_KEY
-  if [[ -f "${ROOT_DIR}/.env" ]]; then
-    # shellcheck disable=SC1091
-    set -a && source "${ROOT_DIR}/.env" && set +a
-  fi
+  # Reload .env in case Jellyfin step appended JELLYFIN_API_KEY.
+  load_env "${ROOT_DIR}/.env"
 
   [[ -n "${JELLYFIN_API_KEY:-}" ]] || die "JELLYFIN_API_KEY is required for Seerr setup"
 
@@ -472,9 +503,16 @@ setup_seerr() {
   # serverType: 2 = Jellyfin (1=Plex, 2=Jellyfin, 3=Emby, 4=NotConfigured)
   log "Authenticating with Seerr via Jellyfin"
   local auth_response session_cookie
+  local seerr_auth_payload
+  seerr_auth_payload="$(jq -cn \
+    --arg username "${JELLYFIN_USERNAME}" \
+    --arg password "${JELLYFIN_PASSWORD}" \
+    --arg hostname "jellyfin" \
+    --argjson port "${JELLYFIN_PORT}" \
+    '{username: $username, password: $password, hostname: $hostname, port: $port, useSsl: false, urlBase: "", serverType: 2}')"
   auth_response="$(curl -si -X POST "${base}/api/v1/auth/jellyfin" \
     -H "Content-Type: application/json" \
-    -d "{\"username\":\"${JELLYFIN_USERNAME}\",\"password\":\"${JELLYFIN_PASSWORD}\",\"hostname\":\"jellyfin\",\"port\":${JELLYFIN_PORT},\"useSsl\":false,\"urlBase\":\"\",\"serverType\":2}" \
+    -d "${seerr_auth_payload}" \
     2>/dev/null || true)"
   log "Seerr auth status: $(echo "${auth_response}" | head -1)"
   session_cookie="$(echo "${auth_response}" | tr -d '\r' | grep -i '^set-cookie:' | head -1 | sed 's/[Ss]et-[Cc]ookie: //;s/;.*//' || true)"
@@ -490,7 +528,7 @@ setup_seerr() {
     -H "Cookie: ${session_cookie}" \
     -d "$(jq -c --arg key "${JELLYFIN_API_KEY}" \
           '.jellyfinSettings | .apiKey = $key | .hostname //= "jellyfin"' "${init_config}")")"
-  log "Jellyfin settings result: ${jellyfin_result}"
+  log "Jellyfin settings configured"
 
   log "Configuring Seerr main settings"
   local main_result
@@ -506,7 +544,7 @@ setup_seerr() {
     -H "Content-Type: application/json" \
     -H "Cookie: ${session_cookie}" \
     -d "$(jq -c '.radarrServer' "${init_config}")" || true)"
-  log "Radarr settings result: ${radarr_result}"
+  log "Radarr settings configured"
 
   log "Configuring Seerr Sonarr server"
   local sonarr_result
@@ -514,7 +552,7 @@ setup_seerr() {
     -H "Content-Type: application/json" \
     -H "Cookie: ${session_cookie}" \
     -d "$(jq -c '.sonarrServer' "${init_config}")" || true)"
-  log "Sonarr settings result: ${sonarr_result}"
+  log "Sonarr settings configured"
 
   log "Marking Seerr as initialized"
   local init_result

@@ -98,19 +98,21 @@ ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags init
 
 ### Updates
 
-Image versions are pinned in [`vars.yml`](vars.yml). Check available semver tags:
+Image versions and manifest-list digests are pinned in [`vars.yml`](vars.yml).
+Check available semver tags and digest drift:
 
 ```zsh
 scripts/check-image-updates.py
 ```
 
-Bump versions deliberately, then re-template the generated compose file,
-recreate the stack, and verify the health endpoints:
+Bump the tag and digest deliberately, then re-template the generated compose
+file, pull the updated image on that run only, recreate the stack, and verify
+the health endpoints:
 
 ```zsh
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --syntax-check
 ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --check --diff --tags config
-ansible-playbook -i inventory.ini setup-media-server.playbook.yaml --tags config,compose,verify
+ansible-playbook -i inventory.ini setup-media-server.playbook.yaml -e compose_pull_policy=always --tags config,compose,verify
 ```
 
 After deployment, inspect the running stack on the server:
@@ -152,14 +154,18 @@ ansible_user=<your_local_user>
 server_domain=media.local
 timezone=<your_timezone>
 
-# Bind admin UIs to the LAN instead of localhost-only
+# Bind admin UIs to the LAN instead of localhost-only. Keep the firewall on and
+# restrict Docker-published admin ports to trusted CIDRs/interfaces.
 bind_host=0.0.0.0
+trusted_lan_cidrs=["192.168.1.0/24"]
+admin_ingress_interfaces=["eth0"]
 
-# Store media on external/secondary storage, keep app configs on the fast disk
+# Store media on a dedicated external/secondary storage directory; the
+# playbook rejects broad system paths such as /, /home, /etc, /usr, and /var.
 content_dir=/mnt/external-drive/content
 
-# Skip UFW if you manage the local firewall yourself (or don't want one)
-enable_firewall=false
+# Skip UFW only if you manage equivalent Docker-aware firewall rules yourself.
+# enable_firewall=false
 ```
 
 `bind_host` must be either `127.0.0.1` (localhost-only, the default — used
@@ -168,6 +174,12 @@ Anything else fails validation, since service initialisation always connects
 to the freshly-started containers via `127.0.0.1` — Docker's port publishing
 only forwards traffic addressed to the bound IP, so a specific LAN IP here
 would make init unable to reach its own services.
+
+qBittorrent's peer port is **not** published by default, because Docker-published
+ports can bypass normal UFW incoming-policy expectations. To expose it
+deliberately, set `publish_bittorrent_peer_ports=true` and choose
+`qbittorrent_peer_bind_host`/`qbittorrent_peer_port`; provider-side VPN port
+forwarding is preferred when qBittorrent is routed through Gluetun.
 
 Route qBittorrent's traffic through a VPN with `vpn_enabled=true` — see the
 VPN section in [`inventory.example.ini`](inventory.example.ini) for the full
