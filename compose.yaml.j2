@@ -21,7 +21,7 @@ services:
 
 {% if vpn_enabled | default(false) | bool %}
   gluetun:
-    image: qmcgaw/gluetun
+    image: qmcgaw/gluetun:{{ gluetun_version }}
     container_name: gluetun
     cap_add:
       - NET_ADMIN

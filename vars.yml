@@ -57,14 +57,16 @@ ssh_port: 22
 # qBittorrent WebUI username (defaults to your SSH user)
 qbittorrent_username: "{{ ansible_user }}"
 
-# Pinned image versions (verified 2026-06-11). Bump deliberately, then re-run
-# the playbook with --tags compose.
-traefik_version: "v3"
+# Pinned image versions (verified 2026-07-04). Bump deliberately, then re-run
+# the playbook with --tags config,compose so the generated compose.yaml is
+# updated before containers are recreated.
+traefik_version: "v3.7.6"
 jellyfin_version: "10.11.11"
-qbittorrent_version: "5.2.1"
+qbittorrent_version: "5.2.2"
 radarr_version: "6.2.1"
-sonarr_version: "4.0.17"
+sonarr_version: "4.0.19"
 prowlarr_version: "2.4.0"
 # NOTE: confirm the current linuxserver/bazarr tag before deploying (hub.docker.com/r/linuxserver/bazarr/tags).
-bazarr_version: "1.5.1"
-seerr_version: "v3.2.0"
+bazarr_version: "1.5.6"
+seerr_version: "v3.3.0"
+gluetun_version: "v3.41.1"
