@@ -19,7 +19,7 @@ Session\DisableAutoTMMTriggers\CategorySavePathChanged=false
 Session\DisableAutoTMMTriggers\DefaultSavePathChanged=false
 Session\ExcludedFileNames=
 Session\GlobalMaxRatio=1
-Session\Port=6881
+Session\Port={{ qbittorrent_peer_port }}
 Session\QueueingSystemEnabled=true
 Session\SSL\Port=3376
 Session\ShareLimitAction=Stop
@@ -43,7 +43,7 @@ Proxy\Profiles\Misc=true
 Proxy\Profiles\RSS=true
 
 [Preferences]
-Connection\PortRangeMin=6881
+Connection\PortRangeMin={{ qbittorrent_peer_port }}
 Connection\UPnP=false
 Downloads\SavePath=/data/torrents/
 Downloads\TempPath=/data/torrents/incomplete/

@@ -1,0 +1,105 @@
+---
+- name: Install iptables package
+  apt:
+    name: iptables
+    state: present
+
+- name: Install media server DOCKER-USER firewall script
+  copy:
+    dest: /usr/local/sbin/media-server-docker-user-firewall
+    mode: "0755"
+    owner: root
+    group: root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      admin_ports=({{ admin_ui_container_ports | map('quote') | join(' ') }})
+      trusted_cidrs=({{ trusted_lan_cidrs | map('quote') | join(' ') }})
+      ingress_interfaces=({{ admin_ingress_interfaces | map('quote') | join(' ') }})
+
+      ensure_chain() {
+        iptables -N DOCKER-USER 2>/dev/null || true
+      }
+
+      ensure_insert() {
+        local position="$1"
+        shift
+        iptables -C DOCKER-USER "$@" 2>/dev/null || iptables -I DOCKER-USER "${position}" "$@"
+      }
+
+      ensure_append() {
+        iptables -C DOCKER-USER "$@" 2>/dev/null || iptables -A DOCKER-USER "$@"
+      }
+
+      ensure_chain
+      ensure_insert 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      ensure_insert 2 -i docker0 -j ACCEPT
+      ensure_insert 3 -i br+ -j ACCEPT
+
+      for cidr in "${trusted_cidrs[@]}"; do
+        for iface in "${ingress_interfaces[@]}"; do
+          for port in "${admin_ports[@]}"; do
+            ensure_insert 4 -i "${iface}" -p tcp -s "${cidr}" --dport "${port}" -j ACCEPT
+          done
+        done
+      done
+
+      for iface in "${ingress_interfaces[@]}"; do
+        for port in "${admin_ports[@]}"; do
+          ensure_append -i "${iface}" -p tcp --dport "${port}" -j DROP
+        done
+      done
+
+      ensure_append -j RETURN
+
+- name: Ensure Docker systemd drop-in directory exists
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Install Docker firewall reapply drop-in
+  copy:
+    dest: /etc/systemd/system/docker.service.d/media-server-firewall.conf
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Service]
+      ExecStartPost=/usr/local/sbin/media-server-docker-user-firewall
+  register: docker_firewall_dropin
+
+- name: Install media server firewall systemd service
+  copy:
+    dest: /etc/systemd/system/media-server-docker-user-firewall.service
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Apply media server DOCKER-USER firewall rules
+      Requires=docker.service
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/media-server-docker-user-firewall
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  register: docker_user_firewall_service
+
+- name: Reload systemd after firewall unit changes
+  systemd:
+    daemon_reload: yes
+  when: docker_firewall_dropin.changed or docker_user_firewall_service.changed
+
+- name: Enable and apply media server DOCKER-USER firewall rules
+  systemd:
+    name: media-server-docker-user-firewall.service
+    enabled: yes
+    state: started

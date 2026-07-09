@@ -16,7 +16,37 @@ def load_module():
     return module
 
 
-def test_parse_stack_images_maps_services_to_version_vars(tmp_path):
+def test_parse_stack_images_maps_services_to_version_and_digest_vars(tmp_path):
+    module = load_module()
+    compose = tmp_path / "compose.yaml.j2"
+    vars_file = tmp_path / "vars.yml"
+    compose.write_text(
+        """
+services:
+  traefik:
+    image: traefik:{{ traefik_version }}@sha256:{{ traefik_digest }}
+  seerr:
+    image: ghcr.io/seerr-team/seerr:{{ seerr_version }}@sha256:{{ seerr_digest }}
+""".lstrip()
+    )
+    vars_file.write_text(
+        """
+traefik_version: "v3.7.6"
+traefik_digest: "abc123"
+seerr_version: "v3.3.0"
+seerr_digest: "def456"
+""".lstrip()
+    )
+
+    images = module.parse_stack_images(compose, vars_file)
+
+    assert [(image.service, image.repository, image.current_tag, image.digest_var, image.current_digest) for image in images] == [
+        ("traefik", "traefik", "v3.7.6", "traefik_digest", "abc123"),
+        ("seerr", "ghcr.io/seerr-team/seerr", "v3.3.0", "seerr_digest", "def456"),
+    ]
+
+
+def test_parse_stack_images_reports_missing_digest_for_mutable_refs(tmp_path):
     module = load_module()
     compose = tmp_path / "compose.yaml.j2"
     vars_file = tmp_path / "vars.yml"
@@ -25,23 +55,14 @@ def test_parse_stack_images_maps_services_to_version_vars(tmp_path):
 services:
   traefik:
     image: traefik:{{ traefik_version }}
-  seerr:
-    image: ghcr.io/seerr-team/seerr:{{ seerr_version }}
 """.lstrip()
     )
-    vars_file.write_text(
-        """
-traefik_version: "v3.7.6"
-seerr_version: "v3.3.0"
-""".lstrip()
-    )
+    vars_file.write_text('traefik_version: "v3.7.6"\n')
 
-    images = module.parse_stack_images(compose, vars_file)
+    image = module.parse_stack_images(compose, vars_file)[0]
+    rows = module.compare_images([image], tag_provider=lambda img: ["v3.7.6"], digest_provider=lambda img: "abc123")
 
-    assert [(image.service, image.repository, image.current_tag) for image in images] == [
-        ("traefik", "traefik", "v3.7.6"),
-        ("seerr", "ghcr.io/seerr-team/seerr", "v3.3.0"),
-    ]
+    assert rows[0].status == "missing-digest"
 
 
 def test_latest_semver_tag_prefers_current_prefix():
@@ -58,9 +79,56 @@ def test_compare_images_reports_updates_without_network():
         repository="linuxserver/sonarr",
         version_var="sonarr_version",
         current_tag="4.0.17",
+        digest_var="sonarr_digest",
+        current_digest="abc123",
     )
 
-    rows = module.compare_images([image], tag_provider=lambda img: ["4.0.17", "4.0.19"])
+    rows = module.compare_images(
+        [image],
+        tag_provider=lambda img: ["4.0.17", "4.0.19"],
+        digest_provider=lambda img: "abc123",
+    )
 
     assert rows[0].latest_tag == "4.0.19"
     assert rows[0].status == "update"
+
+
+def test_compare_images_reports_digest_drift():
+    module = load_module()
+    image = module.StackImage(
+        service="traefik",
+        repository="traefik",
+        version_var="traefik_version",
+        current_tag="v3.7.6",
+        digest_var="traefik_digest",
+        current_digest="old",
+    )
+
+    rows = module.compare_images(
+        [image],
+        tag_provider=lambda img: ["v3.7.6"],
+        digest_provider=lambda img: "new",
+    )
+
+    assert rows[0].registry_digest == "new"
+    assert rows[0].status == "digest-drift"
+
+
+def test_compare_images_reports_current_when_tag_and_digest_match():
+    module = load_module()
+    image = module.StackImage(
+        service="traefik",
+        repository="traefik",
+        version_var="traefik_version",
+        current_tag="v3.7.6",
+        digest_var="traefik_digest",
+        current_digest="abc123",
+    )
+
+    rows = module.compare_images(
+        [image],
+        tag_provider=lambda img: ["v3.7.6"],
+        digest_provider=lambda img: "abc123",
+    )
+
+    assert rows[0].status == "current"

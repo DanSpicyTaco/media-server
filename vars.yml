@@ -1,6 +1,7 @@
 # Docker/Directories
 internal_network: "media-network"
 public_network: "reverse-proxy"
+socket_proxy_network: "traefik-socket"
 
 root_dir: "/home/{{ ansible_user }}/{{ server_name }}"
 content_dir: "{{ root_dir }}/content"
@@ -14,6 +15,9 @@ management_dir: "{{ root_dir }}/media-management"
 
 # Network Binding (Defaults to localhost for VPS security behind Traefik. Override to 0.0.0.0 for LAN access)
 bind_host: "127.0.0.1"
+trusted_lan_cidrs: []
+admin_ingress_interfaces: []
+allow_lan_admin_exposure: false
 
 # Firewall
 enable_firewall: true
@@ -22,11 +26,17 @@ enable_firewall: true
 vpn_enabled: false
 vpn_provider: "custom"
 vpn_type: "wireguard"
+gluetun_health_target_addresses: "cloudflare.com:443,github.com:443"
 # Add provider specific variables to inventory.ini if vpn_enabled is true
 # vpn_username: "XXXX"
 # vpn_password: "XXXX"
 # vpn_wireguard_private_key: "XXXX"
 # vpn_wireguard_addresses: "10.0.0.2/32"
+
+# qBittorrent peer ports are opt-in because Docker-published ports can bypass UFW.
+publish_bittorrent_peer_ports: false
+qbittorrent_peer_port: 6881
+qbittorrent_peer_bind_host: "{{ bind_host }}"
 
 # Public Facing Ports (localhost-bound admin UIs)
 qbittorrent_port: 8080
@@ -36,6 +46,14 @@ sonarr_port: 8989
 bazarr_port: 6767
 seerr_port: 5055
 jellyfin_port: 8096
+admin_ui_container_ports:
+  - 8080
+  - 9696
+  - 7878
+  - 8989
+  - 6767
+  - 8096
+  - 5055
 
 # Jellyfin
 jellyfin_username: "admin"
@@ -57,16 +75,28 @@ ssh_port: 22
 # qBittorrent WebUI username (defaults to your SSH user)
 qbittorrent_username: "{{ ansible_user }}"
 
-# Pinned image versions (verified 2026-07-04). Bump deliberately, then re-run
-# the playbook with --tags config,compose so the generated compose.yaml is
-# updated before containers are recreated.
+# Compose pull behavior. Use -e compose_pull_policy=always only during deliberate image updates.
+compose_pull_policy: missing
+
+# Pinned image versions and manifest-list digests (verified 2026-07-09). Bump
+# tag and digest together with scripts/check-image-updates.py.
 traefik_version: "v3.7.6"
+traefik_digest: "e2c19575dd9ed00f0a6ebc662c0a0c8c8c5df15779100ad7aca14cb5b09d875c"
 jellyfin_version: "10.11.11"
+jellyfin_digest: "b5155c5f415bfdd8f5699d24a13cbc775dc7b29807c0dc2e7b76debd116c1ed9"
 qbittorrent_version: "5.2.2"
+qbittorrent_digest: "f6bc57461a97a9c55962e373fb275283a846065fe14d088818179af2f28a0782"
 radarr_version: "6.2.1"
+radarr_digest: "4b31df0a031b00cc8c4b55cc500beb41b1eed3d29cb4eb15f54c75695a6b41d3"
 sonarr_version: "4.0.19"
+sonarr_digest: "16afe738a50916edc3740744ea7390e7ff6665864bef5778fbebb45d4f356865"
 prowlarr_version: "2.4.0"
-# NOTE: confirm the current linuxserver/bazarr tag before deploying (hub.docker.com/r/linuxserver/bazarr/tags).
+prowlarr_digest: "d26d9710f4b77072dc4eda387d2cfc677bcaab91e5d0ba1b7b02414c2640a832"
 bazarr_version: "1.5.6"
+bazarr_digest: "4e7f614c4e61eab97d240cdafecdfd3439ef94fe1e3be437191c5af114d4369b"
 seerr_version: "v3.3.0"
+seerr_digest: "2892b14e960d946fb91573792505dcba011075638f27104360fd21aa157fa2bc"
 gluetun_version: "v3.41.1"
+gluetun_digest: "2f33c71e5e164fcd51a962cb950134df25155593edf0c3e1201f888d027049b4"
+docker_socket_proxy_version: "0.3.0"
+docker_socket_proxy_digest: "0bec5531d169bbc5b78b3aee763870c6faef0faf4723aef985a1bfeeb9eac2fa"

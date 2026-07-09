@@ -1,8 +1,8 @@
 {
   "applicationSettings": {
     "appLanguage": "en",
-    "applicationTitle": "{{ frontend_title }}",
-    "applicationUrl": "https://{{ server_domain }}",
+    "applicationTitle": {{ frontend_title | to_json }},
+    "applicationUrl": {{ ("https://" ~ server_domain) | to_json }},
     "trustProxy": true,
     "csrfProtection": true,
     "hideAvailable": false,
@@ -12,13 +12,13 @@
     "defaultPermissions": 32
   },
   "jellyfinSettings": {
-    "name": "{{ jellyfin_server_name }}",
+    "name": {{ jellyfin_server_name | to_json }},
     "hostname": "jellyfin",
     "port": 8096,
     "apiKey": "",
     "useSsl": false,
     "urlBase": "",
-    "externalHostname": "jellyfin.{{ server_domain }}",
+    "externalHostname": {{ ("jellyfin." ~ server_domain) | to_json }},
     "jellyfinForgotPasswordUrl": "",
     "libraries": []
   },
@@ -26,7 +26,7 @@
     "name": "Radarr",
     "hostname": "radarr",
     "port": 7878,
-    "apiKey": "{{ radarr_api_key }}",
+    "apiKey": {{ radarr_api_key | to_json }},
     "useSsl": false,
     "activeProfileId": 6,
     "activeProfileName": "HD - 720p/1080p",
@@ -41,7 +41,7 @@
     "name": "Sonarr",
     "hostname": "sonarr",
     "port": 8989,
-    "apiKey": "{{ sonarr_api_key }}",
+    "apiKey": {{ sonarr_api_key | to_json }},
     "useSsl": false,
     "activeProfileId": 6,
     "activeLanguageProfileId": 1,

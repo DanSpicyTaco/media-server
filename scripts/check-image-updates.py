@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Check pinned Docker image tags against registry semver tags."""
+"""Check pinned Docker image tags and digests against registries."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -14,7 +15,10 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 SEMVER_RE = re.compile(r"^v?\d+(?:\.\d+){1,3}$")
-IMAGE_RE = re.compile(r"^\s{4}image:\s+(.+?):\s*\{\{\s*(\w+)\s*\}\}")
+IMAGE_RE = re.compile(
+    r"^\s{4}image:\s+(.+?):\s*\{\{\s*(\w+)\s*\}\}"
+    r"(?:@sha256:\s*\{\{\s*(\w+)\s*\}\})?"
+)
 SERVICE_RE = re.compile(r"^\s{2}([A-Za-z0-9_-]+):\s*$")
 VAR_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):\s*[\"']?([^\"'#\n]+)[\"']?")
 
@@ -25,6 +29,8 @@ class StackImage:
     repository: str
     version_var: str
     current_tag: str
+    digest_var: str | None = None
+    current_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,10 +39,17 @@ class ImageComparison:
     latest_tag: str | None
     status: str
     error: str = ""
+    registry_digest: str | None = None
 
 
 def parse_version(tag: str) -> tuple[int, ...]:
     return tuple(int(part) for part in tag.lstrip("v").split("."))
+
+
+def normalize_digest(digest: str | None) -> str | None:
+    if not digest:
+        return None
+    return digest.removeprefix("sha256:").strip()
 
 
 def parse_vars(path: Path) -> dict[str, str]:
@@ -63,12 +76,12 @@ def parse_stack_images(compose_template: Path, vars_file: Path) -> list[StackIma
         if not image_match or current_service is None:
             continue
 
-        repository, version_var = image_match.groups()
+        repository, version_var, digest_var = image_match.groups()
         current_tag = values.get(version_var)
         if current_tag is None:
             raise ValueError(f"{version_var} is used by {current_service} but is missing from {vars_file}")
-        images.append(StackImage(current_service, repository, version_var, current_tag))
-
+        current_digest = normalize_digest(values.get(digest_var)) if digest_var else None
+        images.append(StackImage(current_service, repository, version_var, current_tag, digest_var, current_digest))
     return images
 
 
@@ -141,34 +154,61 @@ def registry_tags(image: StackImage) -> list[str]:
     return dockerhub_tags(image.repository)
 
 
+def registry_digest(image: StackImage) -> str:
+    ref = f"{image.repository}:{image.current_tag}"
+    proc = subprocess.run(
+        ["docker", "manifest", "inspect", "--verbose", ref],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+    )
+    payload = json.loads(proc.stdout)
+    descriptor = payload[0].get("Descriptor") if isinstance(payload, list) else payload.get("Descriptor")
+    digest = normalize_digest(descriptor.get("digest") if descriptor else None)
+    if not digest:
+        raise ValueError(f"registry manifest digest not found for {ref}")
+    return digest
+
+
 def compare_images(
     images: Iterable[StackImage],
     tag_provider: Callable[[StackImage], list[str]] = registry_tags,
+    digest_provider: Callable[[StackImage], str] = registry_digest,
 ) -> list[ImageComparison]:
     rows: list[ImageComparison] = []
     for image in images:
         try:
             latest = latest_semver_tag(tag_provider(image), image.current_tag)
-            if latest is None:
-                rows.append(ImageComparison(image, None, "no-semver-tags"))
+            registry_current_digest = digest_provider(image)
+            if not image.digest_var or not image.current_digest:
+                status = "missing-digest"
+            elif image.current_digest != registry_current_digest:
+                status = "digest-drift"
+            elif latest is None:
+                status = "no-semver-tags"
             elif parse_version(latest) > parse_version(image.current_tag):
-                rows.append(ImageComparison(image, latest, "update"))
+                status = "update"
             else:
-                rows.append(ImageComparison(image, latest, "current"))
+                status = "current"
+            rows.append(ImageComparison(image, latest, status, registry_digest=registry_current_digest))
         except Exception as exc:  # noqa: BLE001 - CLI should report every image, not abort on the first one.
             rows.append(ImageComparison(image, None, "error", str(exc)))
     return rows
 
 
 def format_rows(rows: list[ImageComparison]) -> str:
-    headers = ("service", "image", "current", "latest", "status")
-    table: list[tuple[str, str, str, str, str]] = [headers]
+    headers = ("service", "image", "current", "digest", "latest", "status")
+    table: list[tuple[str, str, str, str, str, str]] = [headers]
     for row in rows:
+        digest = row.image.current_digest or "-"
         table.append(
             (
                 row.image.service,
                 row.image.repository,
                 row.image.current_tag,
+                digest[:12] if digest != "-" else digest,
                 row.latest_tag or "-",
                 row.error if row.error else row.status,
             )
@@ -188,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compose", type=Path, default=Path("compose.yaml.j2"))
     parser.add_argument("--vars", type=Path, default=Path("vars.yml"))
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
-    parser.add_argument("--fail-on-updates", action="store_true", help="exit 1 when newer tags exist")
+    parser.add_argument("--fail-on-updates", action="store_true", help="exit 1 when newer tags exist or digests drift")
     args = parser.parse_args(argv)
 
     rows = compare_images(parse_stack_images(args.compose, args.vars))
@@ -200,7 +240,10 @@ def main(argv: list[str] | None = None) -> int:
                         "service": row.image.service,
                         "image": row.image.repository,
                         "version_var": row.image.version_var,
+                        "digest_var": row.image.digest_var,
                         "current": row.image.current_tag,
+                        "digest": row.image.current_digest,
+                        "registry_digest": row.registry_digest,
                         "latest": row.latest_tag,
                         "status": row.status,
                         "error": row.error,
@@ -215,10 +258,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if any(row.status == "error" for row in rows):
         return 2
-    if args.fail_on_updates and any(row.status == "update" for row in rows):
+    if args.fail_on_updates and any(row.status in {"update", "missing-digest", "digest-drift"} for row in rows):
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
