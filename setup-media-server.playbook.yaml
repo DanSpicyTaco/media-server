@@ -20,6 +20,23 @@
       tags:
         - always
 
+    # init-services.sh always curls 127.0.0.1 to reach the freshly-published
+    # container ports, since it runs on the target host itself. That only
+    # resolves correctly when bind_host is 127.0.0.1 or 0.0.0.0 — Docker's
+    # port publishing only NATs traffic addressed to the bound IP, so a
+    # specific LAN IP here would make init fail to reach its own services.
+    - name: Validate bind_host is one of the supported values
+      assert:
+        that:
+          - bind_host in ['127.0.0.1', '0.0.0.0']
+        fail_msg: >-
+          bind_host must be either 127.0.0.1 (localhost-only) or 0.0.0.0
+          (all interfaces, for LAN access) — service initialisation connects
+          to the published ports via 127.0.0.1 and will fail to reach them
+          if bound to a single specific LAN IP.
+      tags:
+        - always
+
     - name: Auto-generate *arr API keys when not provided
       set_fact:
         "{{ item }}": "{{ lookup('ansible.builtin.password', inventory_dir ~ '/.credentials/' ~ item ~ ' chars=hexdigits length=32') | lower }}"
@@ -269,7 +286,8 @@
         - seerr
 
     - name: Run one-shot service initialisation
-      command: sg docker "{{ root_dir }}/scripts/init-services.sh"
+      become: yes
+      command: "{{ root_dir }}/scripts/init-services.sh"
       args:
         chdir: "{{ root_dir }}"
       register: init_result
@@ -280,3 +298,14 @@
         - seerr
         - media-management
         - frontend
+
+    - name: Ensure correct ownership of configuration and state files
+      become: yes
+      file:
+        path: "{{ root_dir }}"
+        owner: "{{ ansible_facts.user_uid }}"
+        group: "{{ ansible_facts.user_gid }}"
+        recurse: yes
+      tags:
+        - init
+        - setup
