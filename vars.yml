@@ -78,6 +78,15 @@ qbittorrent_username: "{{ ansible_user }}"
 # Compose pull behavior. Use -e compose_pull_policy=always only during deliberate image updates.
 compose_pull_policy: missing
 
+# Disk-space guard: a lightweight sidecar container that stops every
+# actively-downloading qBittorrent torrent if free space on content_dir drops
+# below disk_guard_threshold_gb. Never deletes anything, only pauses new
+# writes — a full disk here can make the whole host unresponsive (even
+# logging can fail), so this is a safety net, not a cleanup tool.
+disk_guard_enabled: true
+disk_guard_threshold_gb: 10
+disk_guard_check_interval_seconds: 120
+
 # Pinned image versions and manifest-list digests (verified 2026-07-09). Bump
 # tag and digest together with scripts/check-image-updates.py.
 traefik_version: "v3.7.6"
@@ -100,3 +109,5 @@ gluetun_version: "v3.41.1"
 gluetun_digest: "2f33c71e5e164fcd51a962cb950134df25155593edf0c3e1201f888d027049b4"
 docker_socket_proxy_version: "0.3.0"
 docker_socket_proxy_digest: "0bec5531d169bbc5b78b3aee763870c6faef0faf4723aef985a1bfeeb9eac2fa"
+diskguard_version: "3.22"
+diskguard_digest: "14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce"

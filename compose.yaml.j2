@@ -136,6 +136,29 @@ services:
       retries: 5
       start_period: 60s
 
+{% if disk_guard_enabled | default(true) | bool %}
+  diskguard:
+    image: alpine:{{ diskguard_version }}@sha256:{{ diskguard_digest }}
+    container_name: diskguard
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - QBITTORRENT_URL=http://qbittorrent:8080
+      - QBITTORRENT_USERNAME={{ qbittorrent_username }}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
+      - DISK_GUARD_THRESHOLD_GB={{ disk_guard_threshold_gb }}
+      - DISK_GUARD_CHECK_INTERVAL_SECONDS={{ disk_guard_check_interval_seconds }}
+    volumes:
+      - ${CONTENT_DIR}:/content:ro
+      - ./scripts/disk-guard.sh:/disk-guard.sh:ro
+    entrypoint: ["/bin/sh", "/disk-guard.sh"]
+    networks:
+      - {{ internal_network }}
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+{% endif %}
+
   prowlarr:
     image: linuxserver/prowlarr:{{ prowlarr_version }}@sha256:{{ prowlarr_digest }}
     container_name: prowlarr
