@@ -196,6 +196,30 @@ ssh -L 9696:127.0.0.1:9696 <user>@<ip_address>
 
 Open `http://localhost:9696`, go to **Indexers → Add Indexer**, and add a few public indexers.
 
+## Disk-space guard
+
+A full disk can make the whole host unresponsive — including logging, so it's
+hard to even diagnose after the fact. The `diskguard` service is a lightweight
+sidecar that watches free space on `content_dir` and, if it drops below a
+threshold, stops every actively-downloading qBittorrent torrent (states
+`downloading`, `stalledDL`, `metaDL`, `checkingDL`, `forcedDL`, `allocating`).
+It never deletes anything — completed/seeding torrents are left untouched, and
+downloads resume once you free up space and restart them.
+
+On by default. Configure in `inventory.ini`:
+
+```zsh
+# disk_guard_enabled=false           # disable entirely
+# disk_guard_threshold_gb=10         # stop downloads below this many GB free
+# disk_guard_check_interval_seconds=120
+```
+
+Check what it's doing via its logs:
+
+```zsh
+docker compose logs diskguard
+```
+
 ## Subtitles
 
 Bazarr downloads **English** subtitles automatically for everything Radarr and

@@ -593,6 +593,7 @@
       loop:
         - { src: config/qbittorrent/categories.json, dest: torrent/config/qBittorrent/categories.json }
         - { src: scripts/init-services.sh, dest: scripts/init-services.sh, mode: "0755" }
+        - { src: scripts/disk-guard.sh, dest: scripts/disk-guard.sh, mode: "0755" }
       tags:
         - setup
         - config
